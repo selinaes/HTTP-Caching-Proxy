@@ -7,31 +7,54 @@
 #include <cstdlib>
 #include <iostream>
 
-
+ using namespace std;
 
 // 1. Need a while loop to listen requests (accept())
 // 2. Create a socket after recv the reqeust
 
 void Proxy::runProxy() {
-    // Create Proxy's socket, used to loop and accept requests
-    int status;
-    struct addrinfo hints;
-    struct addrinfo *servinfo;  // will point to the results
+    const char * hostname = NULL;
+  struct addrinfo host_info;
+  struct addrinfo * servinfo;
+  int status;
+  int socket_fd;
+
+  memset(&host_info, 0, sizeof(host_info));
+  host_info.ai_family = AF_UNSPEC;
+  host_info.ai_socktype = SOCK_STREAM;
+  host_info.ai_flags = AI_PASSIVE;
+
+  // std::cout << hostname << std::endl << port << std::endl;
+  status = getaddrinfo(hostname, "12345", &host_info, &servinfo);
+  if (status != 0) {
+    fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+    cerr << "Error: cannot get address info for host" << endl;
+    cerr << "  (" << hostname << " ," << port << ")" << endl;
+    // return -1;
+    exit(EXIT_FAILURE);
+  }
+
+    // // Create Proxy's socket, used to loop and accept requests
+    // int status;
+    // struct addrinfo hints;
+    // struct addrinfo *servinfo;  // will point to the results
 
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t addr_size; // size of the address
     int sockfd; // listen on sockfd, new connection on client_fd
     int client_fd; 
 
-    memset(&hints, 0, sizeof(hints)); // make sure the struct is empty
-    hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
-    hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
-    hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+    // memset(&hints, 0, sizeof(hints)); // make sure the struct is empty
+    // hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    // hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+    // hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
     
-    if ((status = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
-        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
-        exit(1);
-    }
+    // std::cout << hostname << std::endl << port << std::endl;
+
+    // if ((status = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
+    //     fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+    //     exit(1);
+    // }
     
     // make a socket, bind it, and listen on it:
     sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
