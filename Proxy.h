@@ -13,6 +13,16 @@ class Proxy {
     public:
         Proxy(const char* port_in, const char* hostname_in) : port(port_in), hostname(hostname_in) {}
         void runProxy();
-        void createThread();
+        static void * threadProcess(void* params);
+        int acceptRequest(int proxyfd);
+        void handleGET();
 
+};
+
+struct ConnParams {
+    int conn_id;
+    int client_fd;
+    int server_fd;
+    // std::string request;
+    // std::string response;
 };

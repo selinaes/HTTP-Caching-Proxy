@@ -1,0 +1,3 @@
+* If we try to print to std::cout and try to print a char[] or a string, 
+the run will fail with "bind error: Bad value for ai_flags" 
+* std::cerr can print out a string, but not a char[]
