@@ -9,6 +9,8 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <pthread.h>
+#include <vector>
+#include <array>
 
 
  using namespace std;
@@ -77,7 +79,9 @@ void Proxy::runProxy() {
     std::cout << hostname << std::endl << port << std::endl;
     std::cout << typeid(port).name() << endl;
     std::string port_change = std::string(port);
-    if ((status = getaddrinfo(NULL, "12345", &hints, &servinfo)) != 0) {
+
+    const char * port2 = "12345";
+    if ((status = getaddrinfo(NULL, port2, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
         exit(1);
     }
@@ -88,6 +92,8 @@ void Proxy::runProxy() {
         std::cerr << "Create socket error when initializing socket";
         exit(1);
     }
+
+    std::cout << servinfo->ai_flags << std::endl << servinfo->ai_addr << std::endl;
     int bind_status = bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
     if (bind_status == -1) {
         // print the error message
@@ -107,17 +113,17 @@ void Proxy::runProxy() {
     while (1) {
         int client_fd = acceptRequest(sockfd);
 
-        ConnParams* conn;
-        conn->conn_id = connID;
-        conn->client_fd = client_fd;
-        conn->server_fd = sockfd; // is this necessary?
-
+        pthread_t thread;
         pthread_mutex_lock(&lock);
+        ConnParams conn;
+        conn.conn_id = connID; // access ID, need lock
+        conn.client_fd = client_fd;
+        conn.server_fd = sockfd; // is this necessary?
+
         connID++;
         pthread_mutex_unlock(&lock);
-        
-        pthread_t thread;
-        pthread_create(&thread, NULL, threadProcess, conn);
+
+        pthread_create(&thread, NULL, threadProcess, &conn);
     }
 
     
@@ -131,12 +137,21 @@ int Proxy::acceptRequest(int proxyfd) {
     // now accept incoming connections:
     addr_size = sizeof their_addr;
     client_fd = accept(proxyfd, (struct sockaddr *)&their_addr, &addr_size);
-    
-    
+    if (client_fd == -1) {
+        std::cerr << "Accept error when initializing socket";
+        exit(1);
+    }
+    return 0;
+}
+
+void * Proxy::threadProcess(void* params) {
+    ConnParams* conn = (ConnParams*) params;
+    // 1. Receive the request from the client, and parse it
+    std::vector<std::array<char, 4096>> request2;
     char request[4096];
     int byte_count;
     // all right! now that we're connected, we can receive some data!
-    byte_count = recv(client_fd, request, sizeof(request), 0); // receive request from client
+    byte_count = recv(conn->client_fd, &request2.data()[0], sizeof(request2), 0); // receive request from client
     
     if (byte_count <= 0) {
         std::cerr << "Doesn't receive anything";
@@ -147,28 +162,14 @@ int Proxy::acceptRequest(int proxyfd) {
     // std::cerr << input_str;
     Request r = request_parse(input_str);
     request_print(&r);
-    return 0;
-}
-
-void * Proxy::threadProcess(void* params) {
-    // 1. Parse the request
-    // 2. Create a socket to connect to the server
-    // 3. Send the request to the server
-    // 4. Receive the response from the server
-    // 5. Send the response to the client
-    // 6. Close the socket
-
-    // 1. Receive the request from the client
-    // 2. Parse the request
-    // 3. Build a socket to connect to the host server
-    // 4. Handle different types of requests (GET/POST/CONNECT) - with helper functions
-    // 5. Close the sockets
+    // 2. Build a socket to connect to the host server
+    // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
+    // 4. Close the sockets
     return NULL;
 }
 
 void Proxy::handleGET() {
-    // 1. Create a socket to connect to the server
-    // 2. Send the request to the server
-    // 3. Receive the response from the server
-    // 4. Send the response to the client
+    // 1. Send the request to the server
+    // 2. Receive the response from the server
+    // 3. Send the response to the client
 }
