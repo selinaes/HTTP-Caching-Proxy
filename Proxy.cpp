@@ -145,8 +145,7 @@ void Proxy::runProxy() {
         pthread_create(&thread, NULL, threadProcess, (void*)&conn);
 
     }
-
-    
+   
 }
 
 int Proxy::acceptRequest(int proxyfd) {
@@ -185,7 +184,10 @@ void * Proxy::threadProcess(void* params) {
     std::cout << std::endl << std::endl;
     // 2. Build a socket to connect to the host server
     int hostfd = connectToHost(r.host.c_str(), r.port.c_str());
+    
     // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
+    conn->server_fd = hostfd;
+    // handleResponse(conn, &r);
     // 4. Close the sockets
     return NULL;
 }
@@ -223,8 +225,24 @@ int Proxy::connectToHost(const char * hostname, const char * port) {
     return 0;
 }
 
+// void Proxy::handleResponse(ConnParams* params, Request* r) {
+//     // 1. Exclude methods that are not GET, POST, or CONNECT
+//     if (r->method != "GET" && r->method != "POST" && r->method != "CONNECT") {
+//         std::cerr << "Method not supported";
+//         return;
+//     }
+//     // 2. Handle GET, POST, and CONNECT
+//     else if (r->method == "GET") {
+//         handleGET();
+//     }
+//     return;
+// }
+
 void Proxy::handleGET() {
     // 1. Send the request to the server
+
     // 2. Receive the response from the server
+    
     // 3. Send the response to the client
+    
 }
