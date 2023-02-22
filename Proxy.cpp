@@ -76,9 +76,9 @@ void Proxy::runProxy() {
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
     hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
     
-    std::cout << hostname << std::endl << port << std::endl;
-    std::cout << typeid(port).name() << endl;
-    std::string port_change = std::string(port);
+    // std::cout << hostname << std::endl << port << std::endl;
+    // std::cout << typeid(port).name() << endl;
+    // std::string port_change = std::string(port);
 
     const char * port2 = "12345";
     if ((status = getaddrinfo(NULL, port2, &hints, &servinfo)) != 0) {
@@ -96,7 +96,7 @@ void Proxy::runProxy() {
     std::cout << servinfo->ai_flags << std::endl << servinfo->ai_addr << std::endl;
     int bind_status = bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
     if (bind_status == -1) {
-        // print the error message
+        // print the bind status
         fprintf(stderr, "bind error: %s\n", gai_strerror(bind_status));
         exit(1);
     }
@@ -122,8 +122,8 @@ void Proxy::runProxy() {
 
         connID++;
         pthread_mutex_unlock(&lock);
+        pthread_create(&thread, NULL, threadProcess, (void*)&conn);
 
-        pthread_create(&thread, NULL, threadProcess, &conn);
     }
 
     
@@ -141,28 +141,27 @@ int Proxy::acceptRequest(int proxyfd) {
         std::cerr << "Accept error when initializing socket";
         exit(1);
     }
-    return 0;
+    return client_fd;
 }
 
 void * Proxy::threadProcess(void* params) {
     ConnParams* conn = (ConnParams*) params;
     // 1. Receive the request from the client, and parse it
-    std::vector<std::array<char, 4096>> request2;
-    char request[4096];
+    vector<char> request2(4096);
     int byte_count;
     // all right! now that we're connected, we can receive some data!
-    byte_count = recv(conn->client_fd, &request2.data()[0], sizeof(request2), 0); // receive request from client
-    
+    // std::cout << request2.size();
+    byte_count = recv(conn->client_fd, &request2.data()[0], request2.size(), 0); // receive request from client
+    std::cout << request2.data() << std::endl;
     if (byte_count <= 0) {
         std::cerr << "Doesn't receive anything";
     }
-    std::string input_str =  std::string(request, byte_count);
+    std::string input_str =  std::string(request2.begin(), request2.end());
     
-    // std::cout << byte_count;
-    // std::cerr << input_str;
     Request r = request_parse(input_str);
-    request_print(&r);
+    // request_print(&r);
     // 2. Build a socket to connect to the host server
+
     // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
     // 4. Close the sockets
     return NULL;
