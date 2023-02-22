@@ -4,17 +4,19 @@
 #include <netdb.h>
 #include <cstdio>
 #include <cstdlib>
+#include <iostream>
 
 class Proxy {
     private:
-        const char* port; // to pass to getaddrinfo
-        const char* hostname; // to pass to getaddrinfo
+        std::string port; // to pass to getaddrinfo
+        std::string hostname; // to pass to getaddrinfo
 
     public:
-        Proxy(const char* port_in, const char* hostname_in) : port(port_in), hostname(hostname_in) {}
+        Proxy(std::string port_in, std::string hostname_in) : port(port_in), hostname(hostname_in) {}
         void runProxy();
         static void * threadProcess(void* params);
-        int acceptRequest(int proxyfd);
+        int acceptRequest(int proxyfd); // returns client fd
+        static int connectToHost(const char* hostname, const char* port); // returns host server fd
         void handleGET();
 
 };

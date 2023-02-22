@@ -16,6 +16,7 @@
  using namespace std;
  
  pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+ int MAX_LENGTH = 65536;
 
 // helper functions
 
@@ -32,32 +33,49 @@ void request_init(Request* r, std::string method_in, std::string host_in, std::s
 }
 
 void request_print(Request* r) {
-    cerr << r->method << ", " << r->host << ", " << r->port << endl;
+    cerr << "Method is: " << r->method << endl;
+    cerr << "Host is: " << r->host << endl;
+    cerr << "Port is: " << r->port << endl;
 }
 
 Request request_parse(std::string input) {
-   
     string method_in;
     string host_in;
     string port_in;
-    
     // find the method 
     auto method_pos = input.find_first_of(" ");
     method_in = input.substr(0, method_pos);
+    try {
+        // find the host:port
+        auto host_port_start_1 = input.find("Host: ");
+        auto host_port_start_2 = input.find("host: ");
+        auto host_port_start = host_port_start_1 != 0 ? host_port_start_1 : host_port_start_2;
 
-    // find the host:port
-    auto host_pos = input.substr(input.find_first_of("Host: ")+6).find_first_of("\r\n");
-    string host_port = input.substr(input.find_first_of("Host: ")+6, host_pos);
+        auto host_port_string_start = input.substr(host_port_start + 6);
+        auto host_port_end_pos = host_port_string_start.find_first_of("\r\n");
+        auto host_port_combined_string = host_port_string_start.substr(0, host_port_end_pos);
+
+        // find host
+        auto delimitter = host_port_combined_string.find_first_of(":");
+        port_in = "80";
+        if (delimitter != string::npos) {
+            port_in = host_port_combined_string.substr(delimitter+1);
+        }
+        host_in = host_port_combined_string.substr(0, delimitter);
     
-    // find the host
-    // find the port
-    auto splitter = host_port.find_first_of(":");
-    host_in = host_port.substr(input.find_first_of("Host: ")+6, splitter);
-    port_in = host_port.substr(splitter+1);
-    
-    Request r;
-    request_init(&r, method_in, host_in, port_in);
-    return r;
+        Request r;
+        request_init(&r, method_in, host_in, port_in);
+        return r;
+    }
+    catch (exception & e) {
+        cerr << "Host missing" << endl;
+        host_in = "";
+        port_in = "";
+        Request r;
+        request_init(&r, method_in, host_in, port_in);
+        return r;
+    }
+   
 }
 
 
@@ -76,11 +94,13 @@ void Proxy::runProxy() {
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
     hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
     
-    // std::cout << hostname << std::endl << port << std::endl;
+    
     // std::cout << typeid(port).name() << endl;
     // std::string port_change = std::string(port);
-
+    
+    const char * host2 = NULL;
     const char * port2 = "12345";
+    // std::cerr << hostname.c_str() << std::endl << port.c_str() << std::endl;
     if ((status = getaddrinfo(NULL, port2, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
         exit(1);
@@ -147,24 +167,60 @@ int Proxy::acceptRequest(int proxyfd) {
 void * Proxy::threadProcess(void* params) {
     ConnParams* conn = (ConnParams*) params;
     // 1. Receive the request from the client, and parse it
-    vector<char> request2(4096);
+    vector<char> request(MAX_LENGTH, 0);
     int byte_count;
     // all right! now that we're connected, we can receive some data!
     // std::cout << request2.size();
-    byte_count = recv(conn->client_fd, &request2.data()[0], request2.size(), 0); // receive request from client
-    std::cout << request2.data() << std::endl;
+    byte_count = recv(conn->client_fd, &request.data()[0], MAX_LENGTH, 0); // receive request from client
+    
     if (byte_count <= 0) {
         std::cerr << "Doesn't receive anything";
     }
-    std::string input_str =  std::string(request2.begin(), request2.end());
-    
-    Request r = request_parse(input_str);
-    // request_print(&r);
-    // 2. Build a socket to connect to the host server
+    std::string input_str =  std::string(request.begin(), request.end());
+    std::cout << request.data() << std::endl;
 
+    Request r = request_parse(input_str);
+    request_print(&r);
+
+    std::cout << std::endl << std::endl;
+    // 2. Build a socket to connect to the host server
+    int hostfd = connectToHost(r.host.c_str(), r.port.c_str());
     // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
     // 4. Close the sockets
     return NULL;
+}
+
+int Proxy::connectToHost(const char * hostname, const char * port) {
+    int status;
+    struct addrinfo hints;
+    struct addrinfo *servinfo;  // will point to the results
+    int hostfd;
+
+    memset(&hints, 0, sizeof(hints)); // make sure the struct is empty
+    hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+
+    if ((status = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+        exit(1);
+    }
+
+    // make a socket, bind it, and listen on it:
+    hostfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+    if (hostfd == -1) {
+        std::cerr << "Create socket error when initializing socket";
+        exit(1);
+    }
+    
+    // connect to the host
+    int connect_status = connect(hostfd, servinfo->ai_addr, servinfo->ai_addrlen);
+    if (connect_status == -1) {
+        // print the bind status
+        fprintf(stderr, "connect error: %s\n", gai_strerror(connect_status));
+        exit(1);
+    }
+    freeaddrinfo(servinfo); // all done with this structure
+    return 0;
 }
 
 void Proxy::handleGET() {

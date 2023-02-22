@@ -1,3 +1,8 @@
 * If we try to print to std::cout and try to print a char[] or a string, 
 the run will fail with "bind error: Bad value for ai_flags" 
-* std::cerr can print out a string, but not a char[]
+
+* When we passed in the port "12345" from the Proxy constructor, it always errors out
+at the part of the first getaddr(), saying "getaddrinfo error: Servname not supported for ai_socktype"
+But it works fine if we define the const char * right before calling getaddr()
+
+* 
