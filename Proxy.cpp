@@ -20,16 +20,13 @@
 
 // helper functions
 
-struct Request {
-    std::string method;
-    std::string host;
-    std::string port;
-};
 
-void request_init(Request* r, std::string method_in, std::string host_in, std::string port_in) {
+
+void request_init(Request* r, std::string method_in, std::string host_in, std::string port_in, vector<char> fullmsg_in) {
     r->method = method_in;
     r->host = host_in;
     r->port = port_in;
+    r->fullmsg = fullmsg_in;
 }
 
 void request_print(Request* r) {
@@ -38,24 +35,26 @@ void request_print(Request* r) {
     cerr << "Port is: " << r->port << endl;
 }
 
-Request request_parse(std::string input) {
+Request request_parse(vector<char> input_in) {
     string method_in;
     string host_in;
     string port_in;
-    // find the method 
+    // find the method
+    std::string input = std::string(input_in.begin(), input_in.end());
     auto method_pos = input.find_first_of(" ");
     method_in = input.substr(0, method_pos);
     try {
         // find the host:port
         auto host_port_start_1 = input.find("Host: ");
         auto host_port_start_2 = input.find("host: ");
-        auto host_port_start = host_port_start_1 != 0 ? host_port_start_1 : host_port_start_2;
+        auto host_port_start = host_port_start_1 != string::npos ? host_port_start_1 : host_port_start_2;
 
         auto host_port_string_start = input.substr(host_port_start + 6);
         auto host_port_end_pos = host_port_string_start.find_first_of("\r\n");
         auto host_port_combined_string = host_port_string_start.substr(0, host_port_end_pos);
 
         // find host
+        std::cerr << "Combined port + host: " << host_port_combined_string << endl;
         auto delimitter = host_port_combined_string.find_first_of(":");
         port_in = "80";
         if (delimitter != string::npos) {
@@ -64,7 +63,7 @@ Request request_parse(std::string input) {
         host_in = host_port_combined_string.substr(0, delimitter);
     
         Request r;
-        request_init(&r, method_in, host_in, port_in);
+        request_init(&r, method_in, host_in, port_in, input_in);
         return r;
     }
     catch (exception & e) {
@@ -72,7 +71,7 @@ Request request_parse(std::string input) {
         host_in = "";
         port_in = "";
         Request r;
-        request_init(&r, method_in, host_in, port_in);
+        request_init(&r, method_in, host_in, port_in, input_in);
         return r;
     }
    
@@ -138,13 +137,13 @@ void Proxy::runProxy() {
         ConnParams conn;
         conn.conn_id = connID; // access ID, need lock
         conn.client_fd = client_fd;
-        conn.server_fd = sockfd; // is this necessary?
 
         connID++;
         pthread_mutex_unlock(&lock);
         pthread_create(&thread, NULL, threadProcess, (void*)&conn);
 
     }
+    
    
 }
 
@@ -174,21 +173,30 @@ void * Proxy::threadProcess(void* params) {
     
     if (byte_count <= 0) {
         std::cerr << "Doesn't receive anything";
+        return NULL; // handle?
     }
     std::string input_str =  std::string(request.begin(), request.end());
     std::cout << request.data() << std::endl;
 
-    Request r = request_parse(input_str);
+    Request r = request_parse(request);
     request_print(&r);
 
     std::cout << std::endl << std::endl;
     // 2. Build a socket to connect to the host server
+    if (r.method == "CONNECT" && r.port != "443") {
+        std::cerr << "Port number is not 443 for CONNECT request";
+        return NULL;
+    }
     int hostfd = connectToHost(r.host.c_str(), r.port.c_str());
     
     // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
     conn->server_fd = hostfd;
-    // handleResponse(conn, &r);
+    conn->requestp = &r;
+    handleResponse(conn);
+    
     // 4. Close the sockets
+    shutdown(conn->client_fd, 2);
+    shutdown(hostfd, 2);
     return NULL;
 }
 
@@ -222,23 +230,99 @@ int Proxy::connectToHost(const char * hostname, const char * port) {
         exit(1);
     }
     freeaddrinfo(servinfo); // all done with this structure
-    return 0;
+    return hostfd;
 }
 
-// void Proxy::handleResponse(ConnParams* params, Request* r) {
-//     // 1. Exclude methods that are not GET, POST, or CONNECT
-//     if (r->method != "GET" && r->method != "POST" && r->method != "CONNECT") {
-//         std::cerr << "Method not supported";
-//         return;
-//     }
-//     // 2. Handle GET, POST, and CONNECT
-//     else if (r->method == "GET") {
-//         handleGET();
-//     }
-//     return;
-// }
+void Proxy::handleResponse(ConnParams* params) {
+    // 1. Exclude methods that are not GET, POST, or CONNECT
+    if (params->requestp->method != "GET" && params->requestp->method != "POST" && params->requestp->method != "CONNECT") {
+        std::cerr << "Method not supported";
+        return;
+    }
+    // 2. Handle GET, POST, and CONNECT
+    else if (params->requestp->method == "GET") {
+        handleGET(params);
+    }
 
-void Proxy::handleGET() {
+    else if (params->requestp->method == "CONNECT") {
+        handleCONNECT(params);
+    }
+    return;
+}
+
+void Proxy::handlePOST(ConnParams* conn) {
+    // 1. Send the request to the host server
+    send(conn->server_fd, conn->requestp->fullmsg.data(), conn->requestp->fullmsg.size(), 0);
+    // 2. loop to receive the response from the host server
+
+    vector<char> response(MAX_LENGTH, 0);
+    while (1) {
+        int byte_count = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
+        if (byte_count <= 0) {
+            break;
+        }
+        // 3. Send the response back to the client
+        send(conn->client_fd, response.data(), response.size(), 0);
+    }
+    return;
+}
+
+
+
+void Proxy::handleCONNECT(ConnParams* conn) {
+
+    // 1. send an http response of "200 ok" back to the browser
+    send(conn->client_fd, "HTTP/1.1 200 OK\r\n\r\n", 19, 0);
+    
+    // 2. Use IO multiplexing (i.e. select()) from both ports (client and server), simply forwarding messages from one end to another. 
+    
+    // numfds is the highest-numbered file descriptor in client_fd and server_fd, plus 1.
+    int maxfds = conn->client_fd > conn->server_fd ? conn->client_fd : conn->server_fd;
+    fd_set readfds;
+
+    // loop until one of the connections is closed
+    while (1) {
+        FD_ZERO(&readfds); // clear the set
+        FD_SET(conn->server_fd, &readfds); // add server_fd to readfds
+        FD_SET(conn->client_fd, &readfds); // add client_fd to readfds
+
+        int select_status = select(maxfds+1, &readfds, NULL, NULL, NULL); // return ready to read file descriptors in readfds; don't care about writefds and exceptfds
+        if (select_status == -1) {
+            std::cerr << "Select error";
+            return;
+        }
+        vector<int> fds = {conn->client_fd, conn->server_fd};
+        
+        for (auto fd: fds) {
+            if (FD_ISSET(fd, &readfds)) {
+                int otherfd;
+                if (fd == conn->client_fd) {
+                    otherfd = conn->server_fd;
+                }
+                else {
+                    otherfd = conn->client_fd;
+                }
+                vector <char> buffer(MAX_LENGTH, 0);
+                int byte_count = recv(fd, &buffer.data()[0], MAX_LENGTH, 0); // receive request from client
+                if (byte_count <= 0) {
+                    return;
+                }
+                int send_status = send(otherfd, &buffer.data()[0], byte_count, 0);
+                if (send_status <= 0) {
+                    return;
+                }
+            }
+        }
+        
+        
+
+    }
+    
+
+    // 3. The proxy does not send a CONNECT http message on to the origin server.
+}
+
+void Proxy::handleGET(ConnParams* conn) {
     // 1. Send the request to the server
 
     // 2. Receive the response from the server

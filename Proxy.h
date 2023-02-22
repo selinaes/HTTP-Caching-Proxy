@@ -5,6 +5,25 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <vector>
+
+struct Request {
+    std::string method;
+    std::string host;
+    std::string port;
+    std::vector<char> fullmsg;
+};
+
+struct ConnParams {
+    int conn_id;
+    int client_fd;
+    int server_fd;
+    Request* requestp;
+    // std::string request;
+    // std::string response;
+};
+
+
 
 class Proxy {
     private:
@@ -17,15 +36,11 @@ class Proxy {
         static void * threadProcess(void* params);
         int acceptRequest(int proxyfd); // returns client fd
         static int connectToHost(const char* hostname, const char* port); // returns host server fd
-        // static void handleResponse(ConnParams* params, Request* request);
-        static void handleGET();
+        static void handleResponse(ConnParams* params);
+        static void handleCONNECT(ConnParams* params);
+        static void handlePOST(ConnParams* params);
+        static void handleGET(ConnParams* params);
 
 };
 
-struct ConnParams {
-    int conn_id;
-    int client_fd;
-    int server_fd;
-    // std::string request;
-    // std::string response;
-};
+

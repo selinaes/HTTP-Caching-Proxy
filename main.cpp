@@ -12,5 +12,6 @@ int main() {
     Proxy * proxy = new Proxy(hostname, port);
     // Proxy proxy = Proxy(hostname, port);
     proxy->runProxy();
+    delete proxy;
     return 1;
 }
