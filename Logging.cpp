@@ -1,8 +1,8 @@
-#include "logging.h"
+#include "Logging.h"
 #include <string>
 #include <arpa/inet.h>
 
-void logging::clientRequest(ConnParams *conn){
+void Logging::clientRequest(ConnParams *conn){
     // get ip address
     struct sockaddr_in addr;
     socklen_t addr_size = sizeof(struct sockaddr_in);
@@ -27,17 +27,17 @@ void logging::clientRequest(ConnParams *conn){
     pthread_mutex_unlock(&mutex);
 }
 
-void logging::respondToClient(ConnParams *conn, std::string responseLine) {
+void Logging::respondToClient(ConnParams *conn, std::string responseLine) {
     pthread_mutex_lock(&mutex);
     std::cout << conn->conn_id << ": Responding \"" << responseLine <<  std::endl;
     logFile << conn->conn_id << ": Responding \"" << responseLine <<  std::endl;
     pthread_mutex_unlock(&mutex);
 }
 
-void logging::serverRespond(ConnParams *conn) {
+void Logging::serverRespond(ConnParams *conn) {
     
 }
 
-void logging::requestServer(ConnParams *conn) {
+void Logging::requestServer(ConnParams *conn) {
     
 }
