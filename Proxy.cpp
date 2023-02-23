@@ -1,4 +1,5 @@
 #include "Proxy.h"
+#include "struct_helper.h"
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -17,30 +18,20 @@
  
  pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
  int MAX_LENGTH = 65536;
+ std::string filepath = "/var/log/erss/proxy.log";
 
 // helper functions
 
-
-
-void request_init(Request* r, std::string method_in, std::string host_in, std::string port_in, vector<char> fullmsg_in) {
-    r->method = method_in;
-    r->host = host_in;
-    r->port = port_in;
-    r->fullmsg = fullmsg_in;
-}
-
-void request_print(Request* r) {
-    cerr << "Method is: " << r->method << endl;
-    cerr << "Host is: " << r->host << endl;
-    cerr << "Port is: " << r->port << endl;
-}
 
 Request request_parse(vector<char> input_in) {
     string method_in;
     string host_in;
     string port_in;
+    // find the request line
+    std::string input = std::string(input_in.begin(), input_in.end()); 
+    auto line_pos = input.find_first_of("/r/n");
+    auto line_in = input.substr(0, line_pos);
     // find the method
-    std::string input = std::string(input_in.begin(), input_in.end());
     auto method_pos = input.find_first_of(" ");
     method_in = input.substr(0, method_pos);
     try {
@@ -63,7 +54,7 @@ Request request_parse(vector<char> input_in) {
         host_in = host_port_combined_string.substr(0, delimitter);
     
         Request r;
-        request_init(&r, method_in, host_in, port_in, input_in);
+        request_init(&r, method_in, host_in, port_in, input_in, line_in);
         return r;
     }
     catch (exception & e) {
@@ -71,12 +62,11 @@ Request request_parse(vector<char> input_in) {
         host_in = "";
         port_in = "";
         Request r;
-        request_init(&r, method_in, host_in, port_in, input_in);
+        request_init(&r, method_in, host_in, port_in, input_in, line_in);
         return r;
     }
    
 }
-
 
 
 // 1. Need a while loop to listen requests (accept())
@@ -91,16 +81,10 @@ void Proxy::runProxy() {
     memset(&hints, 0, sizeof(hints)); // make sure the struct is empty
     hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
-    hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+    //hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
     
     
-    // std::cout << typeid(port).name() << endl;
-    // std::string port_change = std::string(port);
-    
-    const char * host2 = NULL;
-    const char * port2 = "12345";
-    // std::cerr << hostname.c_str() << std::endl << port.c_str() << std::endl;
-    if ((status = getaddrinfo(NULL, port2, &hints, &servinfo)) != 0) {
+    if ((status = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
         exit(1);
     }

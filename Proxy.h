@@ -6,32 +6,17 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
-
-struct Request {
-    std::string method;
-    std::string host;
-    std::string port;
-    std::vector<char> fullmsg;
-};
-
-struct ConnParams {
-    int conn_id;
-    int client_fd;
-    int server_fd;
-    Request* requestp;
-    // std::string request;
-    // std::string response;
-};
+#include "struct_helper.h"
 
 
 
 class Proxy {
     private:
-        std::string port; // to pass to getaddrinfo
-        std::string hostname; // to pass to getaddrinfo
+        const char * hostname; // to pass to getaddrinfo
+        const char * port; // to pass to getaddrinfo
 
     public:
-        Proxy(std::string port_in, std::string hostname_in) : port(port_in), hostname(hostname_in) {}
+        Proxy(const char * hostname_in, const char * port_in) : hostname(hostname_in), port(port_in) {}
         void runProxy();
         static void * threadProcess(void* params);
         int acceptRequest(int proxyfd); // returns client fd
