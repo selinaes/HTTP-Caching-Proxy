@@ -7,13 +7,15 @@
 #include <iostream>
 #include <vector>
 
+
 struct Request {
     std::string method;
     std::string host;
     std::string port;
-    std::string line;
     std::vector<char> fullmsg;
+    std::string line;
 };
+
 
 struct ConnParams {
     int conn_id;
@@ -23,7 +25,7 @@ struct ConnParams {
 };
 
 
-void request_init(Request* r, std::string method_in, std::string host_in, std::string port_in, vector<char> fullmsg_in, std::string line_in) {
+inline void request_init(Request* r, std::string method_in, std::string host_in, std::string port_in, std::vector<char> fullmsg_in, std::string line_in) {
     r->method = method_in;
     r->host = host_in;
     r->port = port_in;
@@ -31,8 +33,8 @@ void request_init(Request* r, std::string method_in, std::string host_in, std::s
     r->line = line_in;
 }
 
-void request_print(Request* r) {
-    cerr << "Method is: " << r->method << endl;
-    cerr << "Host is: " << r->host << endl;
-    cerr << "Port is: " << r->port << endl;
+inline void request_print(Request* r) {
+    std::cerr << "Method is: " << r->method << std::endl;
+    std::cerr << "Host is: " << r->host << std::endl;
+    std::cerr << "Port is: " << r->port << std::endl;
 }

@@ -6,7 +6,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
-#include "struct_helper.h"
+#include "logging.h"
+
+
 
 
 
@@ -25,6 +27,7 @@ class Proxy {
         static void handleCONNECT(ConnParams* params);
         static void handlePOST(ConnParams* params);
         static void handleGET(ConnParams* params);
+        static bool checkChunk(std::string response);
 
 };
 

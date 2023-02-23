@@ -14,14 +14,15 @@
 
 class logging {
     private:
-        pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+        pthread_mutex_t mutex;
         std::ofstream logFile;
 
     public:
-        logging(std::string filepath) : logFile(filepath, std::ios::app) {}
-        void receiveRequest(ConnParams *conn);
-        void sendResponse(ConnParams *conn);
-        void receiveResponse(ConnParams *conn);
+        logging(std::string filepath, pthread_mutex_t lock) : logFile(filepath), mutex(lock) {}
+        void clientRequest(ConnParams *conn); // from client
+        void requestServer(ConnParams *conn); // ask server
+        void respondToClient(ConnParams *conn, std::string responseLine); // from proxy to client
+        void serverRespond(ConnParams *conn); // from server
 
 };
 

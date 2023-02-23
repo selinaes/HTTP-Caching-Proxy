@@ -3,6 +3,11 @@ the run will fail with "bind error: Bad value for ai_flags"
 
 * When we passed in the port "12345" from the Proxy constructor, it always errors out
 at the part of the first getaddr(), saying "getaddrinfo error: Servname not supported for ai_socktype"
-But it works fine if we define the const char * right before calling getaddr()
+But it works fine if we define the const char * right before calling getaddr(). Later we
+figured out that we passed into Proxy constructor arguments in the order Proxy(port, hostname)
+but in our main, we called it with Proxy(hostname, port)
 
-* 
+* After we add a new header file "struct_helper.h" to hold structs Request and ConnParams, as well as
+two helper functions for parsing request. However, when we compile, we faced the error " multiple 
+definition of `request_init` and multiple definition of `request_print`. We later changed the 
+two helper functions into "inline" to solve the problem.

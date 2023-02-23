@@ -1,5 +1,4 @@
 #include "Proxy.h"
-#include "struct_helper.h"
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -16,11 +15,13 @@
 
  using namespace std;
  
- pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
- int MAX_LENGTH = 65536;
- std::string filepath = "/var/log/erss/proxy.log";
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+int MAX_LENGTH = 65536;
+std::string filepath = "/var/log/erss/proxy.log";
+std::string filepath1 = "./proxy.log";
+logging logObj = logging(filepath, lock);
 
-// helper functions
+
 
 
 Request request_parse(vector<char> input_in) {
@@ -30,7 +31,7 @@ Request request_parse(vector<char> input_in) {
     // find the request line
     std::string input = std::string(input_in.begin(), input_in.end()); 
     auto line_pos = input.find_first_of("/r/n");
-    auto line_in = input.substr(0, line_pos);
+    std::string line_in = input.substr(0, line_pos);
     // find the method
     auto method_pos = input.find_first_of(" ");
     method_in = input.substr(0, method_pos);
@@ -96,7 +97,6 @@ void Proxy::runProxy() {
         exit(1);
     }
 
-    std::cout << servinfo->ai_flags << std::endl << servinfo->ai_addr << std::endl;
     int bind_status = bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
     if (bind_status == -1) {
         // print the bind status
@@ -151,31 +151,36 @@ void * Proxy::threadProcess(void* params) {
     // 1. Receive the request from the client, and parse it
     vector<char> request(MAX_LENGTH, 0);
     int byte_count;
-    // all right! now that we're connected, we can receive some data!
-    // std::cout << request2.size();
     byte_count = recv(conn->client_fd, &request.data()[0], MAX_LENGTH, 0); // receive request from client
-    
     if (byte_count <= 0) {
+        pthread_mutex_lock(&lock);
         std::cerr << "Doesn't receive anything";
+        pthread_mutex_unlock(&lock);
         return NULL; // handle?
     }
-    std::string input_str =  std::string(request.begin(), request.end());
+    // for debugging: request print out
     std::cout << request.data() << std::endl;
-
+    
+    // parse request
     Request r = request_parse(request);
-    request_print(&r);
+    // request_print(&r);
+
+    // add request pointer to conn, so that logObj can use it.
+    conn->requestp = &r;
+    logObj.clientRequest(conn);
 
     std::cout << std::endl << std::endl;
+    
     // 2. Build a socket to connect to the host server
-    if (r.method == "CONNECT" && r.port != "443") {
-        std::cerr << "Port number is not 443 for CONNECT request";
-        return NULL;
-    }
+    // if (r.method == "CONNECT" && r.port != "443") {
+    //     std::cerr << "Port number is not 443 for CONNECT request";
+    //     return NULL;
+    // }
     int hostfd = connectToHost(r.host.c_str(), r.port.c_str());
     
     // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
     conn->server_fd = hostfd;
-    conn->requestp = &r;
+    
     handleResponse(conn);
     
     // 4. Close the sockets
@@ -245,9 +250,9 @@ void Proxy::handlePOST(ConnParams* conn) {
         if (byte_count <= 0) {
             break;
         }
-        // 3. Send the response back to the client
-        send(conn->client_fd, response.data(), response.size(), 0);
     }
+    // 3. Send the response back to the client
+    send(conn->client_fd, response.data(), response.size(), 0);
     return;
 }
 
@@ -256,7 +261,9 @@ void Proxy::handlePOST(ConnParams* conn) {
 void Proxy::handleCONNECT(ConnParams* conn) {
 
     // 1. send an http response of "200 ok" back to the browser
-    send(conn->client_fd, "HTTP/1.1 200 OK\r\n\r\n", 19, 0);
+    std::string response = "HTTP/1.1 200 Connection Established\r";
+    send(conn->client_fd, response.c_str() , 19, 0);
+    logObj.respondToClient(conn, response);
     
     // 2. Use IO multiplexing (i.e. select()) from both ports (client and server), simply forwarding messages from one end to another. 
     
@@ -306,11 +313,55 @@ void Proxy::handleCONNECT(ConnParams* conn) {
     // 3. The proxy does not send a CONNECT http message on to the origin server.
 }
 
-void Proxy::handleGET(ConnParams* conn) {
-    // 1. Send the request to the server
+bool Proxy::checkChunk(std::string response) {
+    std::string chunked = "chunked";
+    if (response.find(chunked) != std::string::npos) {
+        return true;
+    }
+    return false;
+}
 
+
+void Proxy::handleGET(ConnParams* conn) {
+    
+    // 1. Send the request to the server
+    send(conn->server_fd, conn->requestp->fullmsg.data(), conn->requestp->fullmsg.size(), 0);
     // 2. Receive the response from the server
+    vector<char> response(MAX_LENGTH, 0);
+    int cur_pos = 0;
+    int byte_count = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0);
+    // Response resp;
+    // check if received response
+    if (byte_count == 0) {
+        std::cerr << "No response from server";
+        return;
+    }
+
+    // check if chunked
+    std::string response_str(response.data());
+    if (checkChunk(response_str)) {
+        // handleChunked(conn, response_str);
+    }
+    else {
+
+    }
+
+
+
+    while (1) {
+        int byte_count = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
+        cur_pos += byte_count;
+        if (byte_count <= 0) {
+            break;
+        }
+    }
+    std::cout << "Response: " << response.data() << std::endl;
+
+
+
+    
     
     // 3. Send the response to the client
-    
+    send(conn->client_fd, response.data(), response.size(), 0);
+    return;
 }

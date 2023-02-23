@@ -2,7 +2,7 @@
 #include <string>
 #include <arpa/inet.h>
 
-void logging::receiveRequest(ConnParams *conn){
+void logging::clientRequest(ConnParams *conn){
     // get ip address
     struct sockaddr_in addr;
     socklen_t addr_size = sizeof(struct sockaddr_in);
@@ -11,6 +11,7 @@ void logging::receiveRequest(ConnParams *conn){
         perror("getpeername failed");
         exit(1);
     }
+    
     std::string ip = inet_ntoa(addr.sin_addr);
 
     // get current time
@@ -21,14 +22,22 @@ void logging::receiveRequest(ConnParams *conn){
 
     // outstream to log
     pthread_mutex_lock(&mutex);
-    logFile << conn->conn_id << ': "' << conn->requestp->line << '" from ' << ip << "@ " << asctime(timeinfo) << std::endl;
+    std::cout << conn->conn_id << ": \"" << conn->requestp->line << "\" from " << ip << "@ " << asctime(timeinfo) << std::endl;
+    logFile << conn->conn_id << ": \"" << conn->requestp->line << "\" from " << ip << "@ " << asctime(timeinfo) << std::endl;
     pthread_mutex_unlock(&mutex);
 }
 
-void logging::sendResponse(ConnParams *conn) {
+void logging::respondToClient(ConnParams *conn, std::string responseLine) {
+    pthread_mutex_lock(&mutex);
+    std::cout << conn->conn_id << ": Responding \"" << responseLine <<  std::endl;
+    logFile << conn->conn_id << ": Responding \"" << responseLine <<  std::endl;
+    pthread_mutex_unlock(&mutex);
+}
+
+void logging::serverRespond(ConnParams *conn) {
     
 }
 
-void logging::receiveResponse(ConnParams *conn) {
+void logging::requestServer(ConnParams *conn) {
     
 }
