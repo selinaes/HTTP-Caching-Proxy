@@ -28,7 +28,8 @@ class Proxy {
         static void handlePOST(ConnParams* params);
         static void handleGET(ConnParams* params);
         static bool checkChunk(std::string response);
-
+        static void handleChunked(ConnParams* params, std::string response);
+        static void handleNonChunked(ConnParams* params, std::string response);
 };
 
 

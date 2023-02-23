@@ -313,6 +313,14 @@ void Proxy::handleCONNECT(ConnParams* conn) {
     // 3. The proxy does not send a CONNECT http message on to the origin server.
 }
 
+void Proxy::handleChunked(ConnParams* conn, std::string response) {
+
+}
+
+void Proxy::handleNonChunked(ConnParams* conn, std::string response) {
+
+}
+
 bool Proxy::checkChunk(std::string response) {
     std::string chunked = "chunked";
     if (response.find(chunked) != std::string::npos) {
@@ -340,12 +348,13 @@ void Proxy::handleGET(ConnParams* conn) {
     // check if chunked
     std::string response_str(response.data());
     if (checkChunk(response_str)) {
-        // handleChunked(conn, response_str);
+        handleChunked(conn, response_str);
     }
     else {
-
+        handleNonChunked(conn, response_str);
     }
 
+    
 
 
     while (1) {
