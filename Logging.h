@@ -15,10 +15,10 @@
 class Logging {
     private:
         pthread_mutex_t mutex;
-        std::ofstream logFile;
+        std::string filePath;
 
     public:
-        Logging(std::string filepath, pthread_mutex_t lock) : logFile(filepath), mutex(lock) {}
+        Logging(std::string filepath, pthread_mutex_t lock) : filePath(filepath), mutex(lock) {}
         void clientRequest(ConnParams *conn); // from client
         void requestServer(ConnParams *conn); // ask server
         void respondToClient(ConnParams *conn, std::string responseLine); // from proxy to client

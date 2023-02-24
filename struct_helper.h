@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "Response.h"
 
 
 struct Request {
@@ -22,6 +23,7 @@ struct ConnParams {
     int client_fd;
     int server_fd;
     Request* requestp;
+    Response* responsep;
 };
 
 

@@ -19,7 +19,7 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 int MAX_LENGTH = 65536;
 std::string filepath = "/var/log/erss/proxy.log";
 std::string filepath1 = "./proxy.log";
-Logging logObj = Logging(filepath, lock);
+Logging logObj = Logging(filepath1, lock);
 
 
 
@@ -30,8 +30,9 @@ Request request_parse(vector<char> input_in) {
     string port_in;
     // find the request line
     std::string input = std::string(input_in.begin(), input_in.end()); 
-    auto line_pos = input.find_first_of("/r/n");
+    auto line_pos = input.find_first_of("\r\n");
     std::string line_in = input.substr(0, line_pos);
+    // std::cerr << "Line: " << line_in << endl;
     // find the method
     auto method_pos = input.find_first_of(" ");
     method_in = input.substr(0, method_pos);
@@ -322,6 +323,7 @@ void Proxy::handleCONNECT(ConnParams* conn) {
 void Proxy::handleChunked(ConnParams* conn, std::vector<char> response) {
     // send all message from host to browser
     send(conn->client_fd, response.data(), response.size(), 0);
+    logObj.respondToClient(conn, conn->responsep->get_line());
     // while loop to receive the remaing response from the host server
     vector<char> remain_msg(MAX_LENGTH, 0);
     while (1) {
@@ -334,28 +336,31 @@ void Proxy::handleChunked(ConnParams* conn, std::vector<char> response) {
     }
 }
 
-void Proxy::handleNonChunked(Response* resp, ConnParams* conn, std::vector<char> response, int cur_pos) {
-    int length = resp->get_length(response);
-    std::cerr<< "Length is: " << length << std::endl;
+void Proxy::handleNonChunked(Response* resp, ConnParams* conn, std::vector<char>& response, int cur_pos) {
+    if (resp->get_body_length(response) == -1 || resp->get_header_length(response) == -1) {
+        std::cerr << "Error: invalid response" << std::endl;
+        return;
+    }
+    else {
+        int body_length = resp->get_body_length(response);
+        int header_length = resp->get_header_length(response);
+        int total_length = body_length + header_length;
+        response.resize(total_length);
+        while (cur_pos < total_length) {
+            int byte_count = recv(conn->server_fd, &response.data()[cur_pos], MAX_LENGTH, 0); // receive request from client
+            cur_pos += byte_count;
+            if (byte_count <= 0) {
+                break;
+            }
+        }
+        // send the response back to the client
+        send(conn->client_fd, response.data(), response.size(), 0);
+        logObj.respondToClient(conn, conn->responsep->get_line());
+    }
+
+    // std::cerr<< "Length is: " << length << std::endl;
     std::cerr << "Response: " << response.data() << std::endl;
-    // if (length > 0) {
-    //      while (1) {
-    //         int byte_count = recv(conn->server_fd, &response.data()[cur_pos], MAX_LENGTH, 0); // receive request from client
-    //         cur_pos += byte_count;
-    //         if (byte_count <= 0) {
-    //             break;
-    //         }
-    //     }
-    //     std::cout << "Response: " << response.data() << std::endl;
-    // }
-   
-
-
-
-    
-    
-    // 3. Send the response to the client
-    send(conn->client_fd, response.data(), response.size(), 0);
+ 
     return;
 }
 
@@ -382,6 +387,11 @@ void Proxy::handleGET(ConnParams* conn) {
     cur_pos += byte_count;
     
     Response resp;
+    resp.set_line(response);
+    conn->responsep = &resp;
+    logObj.serverRespond(conn);
+
+
     // check if received response
     if (byte_count == 0) {
         std::cerr << "No response from server";
