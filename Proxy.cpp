@@ -337,13 +337,13 @@ void Proxy::handleChunked(ConnParams* conn, std::vector<char> response) {
 }
 
 void Proxy::handleNonChunked(Response* resp, ConnParams* conn, std::vector<char>& response, int cur_pos) {
-    if (resp->get_body_length(response) == -1 || resp->get_header_length(response) == -1) {
+    if (get_body_length(response) == -1 || get_header_length(response) == -1) {
         std::cerr << "Error: invalid response" << std::endl;
         return;
     }
     else {
-        int body_length = resp->get_body_length(response);
-        int header_length = resp->get_header_length(response);
+        int body_length = get_body_length(response);
+        int header_length = get_header_length(response);
         int total_length = body_length + header_length;
         response.resize(total_length);
         while (cur_pos < total_length) {

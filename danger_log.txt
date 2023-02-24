@@ -11,3 +11,6 @@ but in our main, we called it with Proxy(hostname, port)
 two helper functions for parsing request. However, when we compile, we faced the error " multiple 
 definition of `request_init` and multiple definition of `request_print`. We later changed the 
 two helper functions into "inline" to solve the problem.
+
+* make sure to close socket fds after use (ex. at the end of each thread), and also make sure to return
+from each thread (achieving the same effect as pthread_exit)
