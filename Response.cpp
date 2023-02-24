@@ -2,9 +2,9 @@
 
 
 
-int Response::get_length(std::vector<char> input_in) {
+int Response::get_length(std::vector<char> input_vec) {
     // find the request line
-    std::string input = std::string(input_in.begin(), input_in.end());
+    std::string input(input_vec.begin(), input_vec.end());
     if (input.find("Content-Length: ") != std::string::npos) {
         auto content_length_start = input.find("Content-Length: ");
         auto content_length_string_start = input.substr(content_length_start + 16);
@@ -15,7 +15,7 @@ int Response::get_length(std::vector<char> input_in) {
     }
     else {
         std::cerr << "Content-Length not found" << std::endl;
-        return 0;
+        return -1;
     }
 }
 

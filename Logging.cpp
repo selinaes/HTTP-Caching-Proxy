@@ -29,15 +29,22 @@ void Logging::clientRequest(ConnParams *conn){
 
 void Logging::respondToClient(ConnParams *conn, std::string responseLine) {
     pthread_mutex_lock(&mutex);
-    std::cout << conn->conn_id << ": Responding \"" << responseLine <<  std::endl;
-    logFile << conn->conn_id << ": Responding \"" << responseLine <<  std::endl;
+    std::cout << conn->conn_id << ": Responding \"" << responseLine << "\""<< std::endl;
+    logFile << conn->conn_id << ": Responding \"" << responseLine << "\"" <<  std::endl;
     pthread_mutex_unlock(&mutex);
 }
 
 void Logging::serverRespond(ConnParams *conn) {
-    
+    pthread_mutex_lock(&mutex);
+    std::cout << conn->conn_id << ": Received \"" << "conn->responsep->line" << "\" from " << conn->requestp->host << std::endl;
+    logFile << conn->conn_id << ": Received \"" << "conn->responsep->line" << "\" from " << conn->requestp->host << std::endl;
+    pthread_mutex_unlock(&mutex);
 }
 
 void Logging::requestServer(ConnParams *conn) {
+    pthread_mutex_lock(&mutex);
+    std::cout << conn->conn_id << ": Requesting \"" << conn->requestp->line << "\" from " << conn->requestp->host << std::endl;
+    logFile << conn->conn_id << ": Requesting \"" << conn->requestp->line << "\" from " << conn->requestp->host << std::endl;
+    pthread_mutex_unlock(&mutex);
     
 }

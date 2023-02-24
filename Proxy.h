@@ -6,7 +6,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
-#include "logging.h"
+#include "Logging.h"
+#include "Response.h"
 
 
 
@@ -27,9 +28,9 @@ class Proxy {
         static void handleCONNECT(ConnParams* params);
         static void handlePOST(ConnParams* params);
         static void handleGET(ConnParams* params);
-        static bool checkChunk(std::string response);
-        static void handleChunked(ConnParams* params, std::string response);
-        static void handleNonChunked(ConnParams* params, std::string response);
+        static bool checkChunk(std::vector<char> response);
+        static void handleChunked(ConnParams* params, std::vector<char> response);
+        static void handleNonChunked(Response* resp, ConnParams* params, std::vector<char> response, int cur_pos);
 };
 
 
