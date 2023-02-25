@@ -151,6 +151,39 @@ int Proxy::acceptRequest(int proxyfd) {
     return client_fd;
 }
 
+int Proxy::connectToHost(const char * hostname, const char * port) {
+    int status;
+    struct addrinfo hints;
+    struct addrinfo *servinfo;  // will point to the results
+    int hostfd;
+
+    memset(&hints, 0, sizeof(hints)); // make sure the struct is empty
+    hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+
+    if ((status = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+        exit(1);
+    }
+
+    // make a socket, connect to it:
+    hostfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+    if (hostfd == -1) {
+        std::cerr << "Create socket error when initializing socket";
+        exit(1);
+    }
+    
+    // connect to the host
+    int connect_status = connect(hostfd, servinfo->ai_addr, servinfo->ai_addrlen);
+    if (connect_status == -1) {
+        // print the connect error
+        fprintf(stderr, "connect error: %s\n", gai_strerror(connect_status));
+        exit(1);
+    }
+    freeaddrinfo(servinfo); // all done with this structure
+    return hostfd;
+}
+
 void * Proxy::threadProcess(void* params) {
     ConnParams* conn = (ConnParams*) params;
     // 1. Receive the request from the client, and parse it
@@ -194,38 +227,7 @@ void * Proxy::threadProcess(void* params) {
     return NULL;
 }
 
-int Proxy::connectToHost(const char * hostname, const char * port) {
-    int status;
-    struct addrinfo hints;
-    struct addrinfo *servinfo;  // will point to the results
-    int hostfd;
 
-    memset(&hints, 0, sizeof(hints)); // make sure the struct is empty
-    hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
-    hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
-
-    if ((status = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
-        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
-        exit(1);
-    }
-
-    // make a socket, bind it, and listen on it:
-    hostfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
-    if (hostfd == -1) {
-        std::cerr << "Create socket error when initializing socket";
-        exit(1);
-    }
-    
-    // connect to the host
-    int connect_status = connect(hostfd, servinfo->ai_addr, servinfo->ai_addrlen);
-    if (connect_status == -1) {
-        // print the bind status
-        fprintf(stderr, "connect error: %s\n", gai_strerror(connect_status));
-        exit(1);
-    }
-    freeaddrinfo(servinfo); // all done with this structure
-    return hostfd;
-}
 
 void Proxy::handleResponse(ConnParams* params) {
     // 1. Exclude methods that are not GET, POST, or CONNECT
@@ -241,24 +243,50 @@ void Proxy::handleResponse(ConnParams* params) {
     else if (params->requestp->method == "CONNECT") {
         handleCONNECT(params);
     }
+    
+    else if (params->requestp->method == "POST") {
+        handlePOST(params);
+    }
     return;
 }
 
 void Proxy::handlePOST(ConnParams* conn) {
-    // 1. Send the request to the host server
+    // 1. Send the first part request to the host server
     send(conn->server_fd, conn->requestp->fullmsg.data(), conn->requestp->fullmsg.size(), 0);
-    // 2. loop to receive the response from the host server
-
-    vector<char> response(MAX_LENGTH, 0);
+    logObj.requestServer(conn);
+    
+    // 2. in case if longer, loop to receive the remaining request from the client, and send it to the host server
     while (1) {
-        int byte_count = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
+        int byte_count = recv(conn->client_fd, &conn->requestp->fullmsg.data()[0], MAX_LENGTH, 0); // receive request from client
         if (byte_count <= 0) {
             break;
         }
+        send(conn->server_fd, conn->requestp->fullmsg.data(), byte_count, 0); // send the amount received
     }
-    // 3. Send the response back to the client
-    send(conn->client_fd, response.data(), response.size(), 0);
-    return;
+
+    // 3. Receive the whole response message from the host server, and send it back to the client
+    vector<char> response(MAX_LENGTH, 0);
+    int byte_first = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
+    // check if received response
+    if (byte_first == 0) {
+        std::cerr << "No response from server -- POST";
+        return;
+    }
+    send(conn->client_fd, response.data(), byte_first, 0); // send the amount received
+
+    Response resp;
+    resp.set_line(response);
+    conn->responsep = &resp;
+    logObj.serverRespond(conn);
+
+    while (1) {
+        int byte_received = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
+        if (byte_received <= 0) {
+            break;
+        }
+        send(conn->client_fd, response.data(), byte_received, 0); // send the amount received
+    }
+    
 }
 
 
@@ -385,18 +413,17 @@ void Proxy::handleGET(ConnParams* conn) {
     int cur_pos = 0;
     int byte_count = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0);
     cur_pos += byte_count;
+    // check if received response
+    if (byte_count == 0) {
+        std::cerr << "No response from server";
+        return;
+    }
     
     Response resp;
     resp.set_line(response);
     conn->responsep = &resp;
     logObj.serverRespond(conn);
 
-
-    // check if received response
-    if (byte_count == 0) {
-        std::cerr << "No response from server";
-        return;
-    }
 
     // check if chunked
     if (checkChunk(response)) {

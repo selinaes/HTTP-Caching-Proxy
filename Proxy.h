@@ -24,7 +24,7 @@ class Proxy {
         static void * threadProcess(void* params);
         int acceptRequest(int proxyfd); // returns client fd
         static int connectToHost(const char* hostname, const char* port); // returns host server fd
-        static void handleResponse(ConnParams* params);
+        static void handleResponse(ConnParams* param);
         static void handleCONNECT(ConnParams* params);
         static void handlePOST(ConnParams* params);
         static void handleGET(ConnParams* params);
