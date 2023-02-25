@@ -13,7 +13,7 @@
 #include <array>
 
 
- using namespace std;
+using namespace std;
  
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 int MAX_LENGTH = 65536;
@@ -28,14 +28,19 @@ Request request_parse(vector<char> input_in) {
     string method_in;
     string host_in;
     string port_in;
+    string url_in;
+
     // find the request line
     std::string input = std::string(input_in.begin(), input_in.end()); 
     auto line_pos = input.find_first_of("\r\n");
     std::string line_in = input.substr(0, line_pos);
     // std::cerr << "Line: " << line_in << endl;
+
     // find the method
     auto method_pos = input.find_first_of(" ");
     method_in = input.substr(0, method_pos);
+
+    
     try {
         // find the host:port
         auto host_port_start_1 = input.find("Host: ");
@@ -54,9 +59,21 @@ Request request_parse(vector<char> input_in) {
             port_in = host_port_combined_string.substr(delimitter+1);
         }
         host_in = host_port_combined_string.substr(0, delimitter);
+
+        // find the address (either relative or absolute) + set url
+        string address = line_in.substr(method_pos + 1);
+        if (address[0] == '/') {
+            // relative address
+            std::cerr << "Relative address" << endl;
+            url_in = host_in + address;
+        } else {
+            // absolute address
+            std::cerr << "Absolute address" << endl;
+            url_in = address;
+        }
     
         Request r;
-        request_init(&r, method_in, host_in, port_in, input_in, line_in);
+        request_init(&r, method_in, host_in, port_in, input_in, line_in, url_in);
         return r;
     }
     catch (exception & e) {
@@ -64,7 +81,7 @@ Request request_parse(vector<char> input_in) {
         host_in = "";
         port_in = "";
         Request r;
-        request_init(&r, method_in, host_in, port_in, input_in, line_in);
+        request_init(&r, method_in, host_in, port_in, input_in, line_in, url_in);
         return r;
     }
    
@@ -219,7 +236,7 @@ void * Proxy::threadProcess(void* params) {
     // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
     conn->server_fd = hostfd;
     
-    handleResponse(conn);
+    handleResponse(conn, byte_count);
     
     // 4. Close the sockets
     std::cout << "Close the sockets for thread:" << conn->conn_id << std::endl;
@@ -230,7 +247,7 @@ void * Proxy::threadProcess(void* params) {
 
 
 
-void Proxy::handleResponse(ConnParams* params) {
+void Proxy::handleResponse(ConnParams* params, int cur_pos) {
     // 1. Exclude methods that are not GET, POST, or CONNECT
     if (params->requestp->method != "GET" && params->requestp->method != "POST" && params->requestp->method != "CONNECT") {
         std::cerr << "Method not supported";
@@ -246,30 +263,27 @@ void Proxy::handleResponse(ConnParams* params) {
     }
     
     else if (params->requestp->method == "POST") {
-        handlePOST(params);
+        handlePOST(params, cur_pos);
     }
     std::cout << "HandleResponse returned:" << params->conn_id << std::endl;
     return;
 }
 
-void Proxy::handlePOST(ConnParams* conn) {
-    // 1. Send the first part request to the host server
-    send(conn->server_fd, conn->requestp->fullmsg.data(), conn->requestp->fullmsg.size(), 0);
+void Proxy::handlePOST(ConnParams* conn, int cur_pos) {
+    // 1. Receive the rest of the request from the client
+    std::cout << "Sending POST request to server" << std::endl;
     logObj.requestServer(conn);
-    std::cerr << "Sent request to server" << std::endl;
+    // check if chunked, handle differently
+    if (checkChunk(conn->requestp->fullmsg)) {
+        std::cout << "Chunked POST request" << std::endl;
+        handleChunked(conn, conn->requestp->fullmsg, conn->client_fd, conn->server_fd);
+    } else {
+        std::cout << "Not chunked POST request" << std::endl;
+        handleNonChunked(conn, conn->requestp->fullmsg, cur_pos, conn->client_fd, conn->server_fd);
+    }
     
-    // 2. in case if longer, loop to receive the remaining request from the client, and send it to the host server
-    // while (1) {
-    //     std::cerr << "In while loop" << std::endl;
-    //     int byte_count = recv(conn->client_fd, &conn->requestp->fullmsg.data()[0], MAX_LENGTH, 0); // receive request from client
-    //     std::cerr << "byte_count: " << byte_count << std::endl;
-    //     if (byte_count <= 0) {
-    //         std::cout << "No more request to receive -- POST" << endl;
-    //         break;
-    //     }
-    //     send(conn->server_fd, conn->requestp->fullmsg.data(), byte_count, 0); // send the amount received
-    // }
-    // 3. Receive the whole response message from the host server, and send it back to the client
+
+    // 2. Receive the first response from the host server, and send it back to the client
     vector<char> response(MAX_LENGTH, 0);
     int byte_first = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
     // check if received response
@@ -277,23 +291,24 @@ void Proxy::handlePOST(ConnParams* conn) {
         std::cerr << "No response from server -- POST";
         return;
     }
-    std::cerr<< "Response data: " << response.data() << std::endl;
+    std::cerr<< "Response first data: " << response.data() << std::endl;
     send(conn->client_fd, response.data(), byte_first, 0); // send the amount received
 
     Response resp;
     resp.set_line(response);
     conn->responsep = &resp;
     logObj.serverRespond(conn);
-
-    // while (1) {
-    //     std::cerr << "In while loop" << std::endl;
-    //     int byte_received = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
-    //     std::cerr << "byte_received: " << byte_received << std::endl;
-    //     if (byte_received <= 0) {
-    //         break;
-    //     }
-    //     send(conn->client_fd, response.data(), byte_received, 0); // send the amount received
-    // }
+    
+    // 3. Receive the rest of the response from the host server, and send it back to the client
+    // check if chunked, handle differently
+    logObj.respondToClient(conn, conn->responsep->get_line());
+    if (checkChunk(response)) {
+        std::cout << "Chunked POST response" << std::endl;
+        handleChunked(conn, response, conn->server_fd, conn->client_fd);
+    } else {
+        std::cout << "Not chunked POST response" << std::endl;
+        handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
+    }
     
 }
 
@@ -356,62 +371,133 @@ void Proxy::handleCONNECT(ConnParams* conn) {
     // 3. The proxy does not send a CONNECT http message on to the origin server.
 }
 
-void Proxy::handleChunked(ConnParams* conn, std::vector<char> response) {
-    // send all message from host to browser
-    send(conn->client_fd, response.data(), response.size(), 0);
-    logObj.respondToClient(conn, conn->responsep->get_line());
+// Return true if revalidate success & can use cache, false if need to replace cache
+bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
+    // modify request  
+    vector<char> modified_request = cached_response->modify_header_revalidate(conn->requestp->fullmsg);
+    // send modified request to server and check if send successful
+    int send_status = send(conn->server_fd, modified_request.data(), modified_request.size(), 0);
+    if (send_status > 0) {
+        std::cerr << "Send successful" << std::endl;
+    }
+
+    // receive response from server
+    vector<char> response(MAX_LENGTH, 0);
+    int byte_first = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
+    // check if received response
+    if (byte_first == 0) {
+        std::cerr << "No response from server -- revalidate";
+        return false;
+    }
+    // check if 304
+    std::string response_str(response.begin(), response.end());
+    if (response_str.find("HTTP/1.1 304 Not Modified") != std::string::npos) {
+        return true;
+    }
+    // if 200, update cache
+    if (response_str.find("HTTP/1.1 200 OK") != std::string::npos) {
+        // check if chunked, handle differently
+        if (checkChunk(response)) {
+            std::cout << "Chunked revalidate response" << std::endl;
+            handleChunked(conn, response, conn->server_fd, conn->client_fd);
+        } else {
+            std::cout << "Not chunked revalidate response" << std::endl;
+            handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
+        }
+    }
+    return false;
+}
+
+
+void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
+    // get response from the most updated cache
+    Response* response = cache[url];
+    // send cached response to client
+    vector<char> header = response->get_header();
+    vector<char> body = response->get_body();
+    // concatenate header and body
+    vector<char> fullmsg;
+    fullmsg.insert(fullmsg.end(), header.begin(), header.end());
+    // ? does it need to do while loop to send all the body?
+    int send_status = send(conn->client_fd, fullmsg.data(),fullmsg.size(), 0);
+    
+}
+
+
+// if the response is in cache, handle cache
+void Proxy::handle_cache(std::string url, ConnParams* conn) {
+    Response* response_cached = cache[url];
+    if (response_cached->need_revalidation()) {
+        if (!revalidate(response_cached, conn)) {
+            
+            return;
+        }
+    }       
+    // send the response back to the client
+    retrieve_from_cache(url, conn);
+    
+    
+}
+
+
+void Proxy::handleChunked(ConnParams* conn, std::vector<char>& message, int recv_fd, int send_fd) {
+    // send first message from from_id to to_id
+    send(send_fd, message.data(), message.size(), 0);
+    // logObj.respondToClient(conn, conn->responsep->get_line());
+
     // while loop to receive the remaing response from the host server
     vector<char> remain_msg(MAX_LENGTH, 0);
     while (1) {
-        int byte_count = recv(conn->server_fd, &remain_msg.data()[0], MAX_LENGTH, 0); // receive request from client
-        std::cerr<< conn->conn_id << " Chunk: byte_count: " << byte_count << std::endl;
+        int byte_count = recv(recv_fd, &remain_msg.data()[0], MAX_LENGTH, 0); // receive request from client
+        std::cerr<< conn->conn_id << "HandleChunk: received byte_count: " << byte_count << std::endl;
         if (byte_count <= 0) {
             break;
         }
         
-        // send the response back to the client
-        int sent = send(conn->client_fd, remain_msg.data(), byte_count, 0);
-        std::cout << conn->conn_id << "sent amount: " << sent << std::endl << "sent data: " << remain_msg.data() << std::endl;
+        // send remaining message each time
+        int sent = send(send_fd, remain_msg.data(), byte_count, 0);
+        std::cout << conn->conn_id << "HandleChunk: sent bytes: " << sent << std::endl << "sent data: " << remain_msg.data() << std::endl;
     }
 }
 
-void Proxy::handleNonChunked(Response* resp, ConnParams* conn, std::vector<char>& response, int cur_pos) {
-    if (get_body_length(response) == -1 || get_header_length(response) == -1) {
+void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int cur_pos, int recv_fd, int send_fd) {
+    if (get_body_length(message) == -1 || get_header_length(message) == -1) {
         std::cerr << "Error: invalid response" << std::endl;
         return;
     }
     else {
-        int body_length = get_body_length(response);
-        int header_length = get_header_length(response);
+        int body_length = get_body_length(message);
+        int header_length = get_header_length(message);
         int total_length = body_length + header_length;
-        response.resize(total_length);
+        message.resize(total_length);
         while (cur_pos < total_length) {
-            int byte_count = recv(conn->server_fd, &response.data()[cur_pos], MAX_LENGTH, 0); // receive request from client           
+            int byte_count = recv(recv_fd, &message.data()[cur_pos], MAX_LENGTH, 0); // receive request from client           
             if (byte_count < 0) {
                 std::perror("Error: recv");
                 return;
             }
+            std::cerr<< conn->conn_id << "HandleNonChunk: received byte_count: " << byte_count << std::endl;
             cur_pos += byte_count;
             if (cur_pos >= total_length) {
                 break;
             }
         }
-        // send the response back to the client
-        int sent = send(conn->client_fd, response.data(), response.size(), 0);
-        std::cout << conn->conn_id << "sent amount: " << sent << std::endl << "sent data: " << response.data() << std::endl;
-        logObj.respondToClient(conn, conn->responsep->get_line());
+        // send the full response back to the client
+        int sent = send(send_fd, message.data(), message.size(), 0);
+        std::cout << conn->conn_id << "HandleNonChunk: seny bytes: " << sent << std::endl;
+        // logObj.respondToClient(conn, conn->responsep->get_line());
     }
 
     // std::cerr<< "Length is: " << length << std::endl;
-    std::cerr << "Response: " << response.data() << std::endl;
+    std::cerr << "HandleNonChunk Sent Full MSG: " << message.data() << std::endl;
  
     return;
 }
 
-bool Proxy::checkChunk(std::vector<char> response) {
-    std::string response_str(response.begin(), response.end());
+bool Proxy::checkChunk(std::vector<char> message) {
+    std::string message_str(message.begin(), message.end());
     std::string chunked = "chunked";
-    if (response_str.find(chunked) != std::string::npos) {
+    if (message_str.find(chunked) != std::string::npos) {
         return true;
     }
     return false;
@@ -444,10 +530,10 @@ void Proxy::handleGET(ConnParams* conn) {
 
     // check if chunked
     if (checkChunk(response)) {
-        handleChunked(conn, response);
+        handleChunked(conn, response, conn->server_fd, conn->client_fd);
     }
     else {
-        handleNonChunked(&resp, conn, response, cur_pos);
+        handleNonChunked(conn, response, cur_pos, conn->server_fd, conn->client_fd);
     }
     
     std::cout << "HandleGet returned:" << conn->conn_id << std::endl;

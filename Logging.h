@@ -9,7 +9,7 @@
 #include <vector>
 #include <pthread.h>
 #include <time.h> 
-#include "struct_helper.h"
+#include "struct_helper.hpp"
 
 
 class Logging {
