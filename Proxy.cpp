@@ -222,6 +222,7 @@ void * Proxy::threadProcess(void* params) {
     handleResponse(conn);
     
     // 4. Close the sockets
+    std::cout << "Close the sockets for thread:" << conn->conn_id << std::endl;
     shutdown(conn->client_fd, 2);
     shutdown(hostfd, 2);
     return NULL;
@@ -247,6 +248,7 @@ void Proxy::handleResponse(ConnParams* params) {
     else if (params->requestp->method == "POST") {
         handlePOST(params);
     }
+    std::cout << "HandleResponse returned:" << params->conn_id << std::endl;
     return;
 }
 
@@ -254,16 +256,19 @@ void Proxy::handlePOST(ConnParams* conn) {
     // 1. Send the first part request to the host server
     send(conn->server_fd, conn->requestp->fullmsg.data(), conn->requestp->fullmsg.size(), 0);
     logObj.requestServer(conn);
+    std::cerr << "Sent request to server" << std::endl;
     
     // 2. in case if longer, loop to receive the remaining request from the client, and send it to the host server
-    while (1) {
-        int byte_count = recv(conn->client_fd, &conn->requestp->fullmsg.data()[0], MAX_LENGTH, 0); // receive request from client
-        if (byte_count <= 0) {
-            break;
-        }
-        send(conn->server_fd, conn->requestp->fullmsg.data(), byte_count, 0); // send the amount received
-    }
-
+    // while (1) {
+    //     std::cerr << "In while loop" << std::endl;
+    //     int byte_count = recv(conn->client_fd, &conn->requestp->fullmsg.data()[0], MAX_LENGTH, 0); // receive request from client
+    //     std::cerr << "byte_count: " << byte_count << std::endl;
+    //     if (byte_count <= 0) {
+    //         std::cout << "No more request to receive -- POST" << endl;
+    //         break;
+    //     }
+    //     send(conn->server_fd, conn->requestp->fullmsg.data(), byte_count, 0); // send the amount received
+    // }
     // 3. Receive the whole response message from the host server, and send it back to the client
     vector<char> response(MAX_LENGTH, 0);
     int byte_first = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
@@ -272,6 +277,7 @@ void Proxy::handlePOST(ConnParams* conn) {
         std::cerr << "No response from server -- POST";
         return;
     }
+    std::cerr<< "Response data: " << response.data() << std::endl;
     send(conn->client_fd, response.data(), byte_first, 0); // send the amount received
 
     Response resp;
@@ -279,13 +285,15 @@ void Proxy::handlePOST(ConnParams* conn) {
     conn->responsep = &resp;
     logObj.serverRespond(conn);
 
-    while (1) {
-        int byte_received = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
-        if (byte_received <= 0) {
-            break;
-        }
-        send(conn->client_fd, response.data(), byte_received, 0); // send the amount received
-    }
+    // while (1) {
+    //     std::cerr << "In while loop" << std::endl;
+    //     int byte_received = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
+    //     std::cerr << "byte_received: " << byte_received << std::endl;
+    //     if (byte_received <= 0) {
+    //         break;
+    //     }
+    //     send(conn->client_fd, response.data(), byte_received, 0); // send the amount received
+    // }
     
 }
 
@@ -356,11 +364,14 @@ void Proxy::handleChunked(ConnParams* conn, std::vector<char> response) {
     vector<char> remain_msg(MAX_LENGTH, 0);
     while (1) {
         int byte_count = recv(conn->server_fd, &remain_msg.data()[0], MAX_LENGTH, 0); // receive request from client
+        std::cerr<< conn->conn_id << " Chunk: byte_count: " << byte_count << std::endl;
         if (byte_count <= 0) {
             break;
         }
+        
         // send the response back to the client
-        send(conn->client_fd, remain_msg.data(), byte_count, 0);
+        int sent = send(conn->client_fd, remain_msg.data(), byte_count, 0);
+        std::cout << conn->conn_id << "sent amount: " << sent << std::endl << "sent data: " << remain_msg.data() << std::endl;
     }
 }
 
@@ -375,14 +386,19 @@ void Proxy::handleNonChunked(Response* resp, ConnParams* conn, std::vector<char>
         int total_length = body_length + header_length;
         response.resize(total_length);
         while (cur_pos < total_length) {
-            int byte_count = recv(conn->server_fd, &response.data()[cur_pos], MAX_LENGTH, 0); // receive request from client
+            int byte_count = recv(conn->server_fd, &response.data()[cur_pos], MAX_LENGTH, 0); // receive request from client           
+            if (byte_count < 0) {
+                std::perror("Error: recv");
+                return;
+            }
             cur_pos += byte_count;
-            if (byte_count <= 0) {
+            if (cur_pos >= total_length) {
                 break;
             }
         }
         // send the response back to the client
-        send(conn->client_fd, response.data(), response.size(), 0);
+        int sent = send(conn->client_fd, response.data(), response.size(), 0);
+        std::cout << conn->conn_id << "sent amount: " << sent << std::endl << "sent data: " << response.data() << std::endl;
         logObj.respondToClient(conn, conn->responsep->get_line());
     }
 
@@ -418,6 +434,7 @@ void Proxy::handleGET(ConnParams* conn) {
         std::cerr << "No response from server";
         return;
     }
+    std::cout << "Initial Response: " << response.data() << std::endl;
     
     Response resp;
     resp.set_line(response);
@@ -432,7 +449,7 @@ void Proxy::handleGET(ConnParams* conn) {
     else {
         handleNonChunked(&resp, conn, response, cur_pos);
     }
-
     
+    std::cout << "HandleGet returned:" << conn->conn_id << std::endl;
 
 }

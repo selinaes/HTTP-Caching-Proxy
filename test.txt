@@ -1,2 +1,9 @@
 CONNECT google.com:443 HTTP/1.1
 Host: google.com:443
+
+
+For GET:
+http://info.cern.ch/
+
+Another GET: For Testing "304 Not Modified"
+http://info.cern.ch/
