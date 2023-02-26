@@ -24,7 +24,6 @@ struct ConnParams {
     int client_fd;
     int server_fd;
     Request* requestp;
-    Response* responsep;
 };
 
 

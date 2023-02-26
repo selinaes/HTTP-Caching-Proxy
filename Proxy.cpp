@@ -310,12 +310,11 @@ void Proxy::handlePOST(ConnParams* conn, int cur_pos) {
 
     Response resp;
     resp.set_line(response);
-    conn->responsep = &resp;
-    logObj.serverRespond(conn);
+    logObj.serverRespond(conn, resp.get_line());
     
     // 3. Receive the rest of the response from the host server, and send it back to the client
     // check if chunked, handle differently
-    logObj.respondToClient(conn, conn->responsep->get_line());
+    logObj.respondToClient(conn, resp.get_line());
     if (checkChunk(response)) {
         std::cout << "Chunked POST response" << std::endl;
         handleChunked(conn, response, conn->server_fd, conn->client_fd, byte_first);
@@ -419,8 +418,8 @@ bool Proxy::revalidate(Response cached_response, ConnParams* conn) {
             std::cout << "Not chunked revalidate response" << std::endl;
             handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
         }
-        conn->responsep->parse_all_attributes(response);
-        cache[conn->requestp->url] = *conn->responsep;
+        cached_response.parse_all_attributes(response);
+        cache[conn->requestp->url] = cached_response;
         std::cerr << "Revalidate get etag: " << cache[conn->requestp->url].get_etag() << std::endl;
     }
     return false;
@@ -551,8 +550,7 @@ void Proxy::handleGET(ConnParams* conn) {
     
     Response resp;
     resp.set_line(response);
-    conn->responsep = &resp;
-    logObj.serverRespond(conn);
+    logObj.serverRespond(conn, resp.get_line());
 
 
     // check if chunked
@@ -568,7 +566,7 @@ void Proxy::handleGET(ConnParams* conn) {
     if (resp.get_line().find("200 OK") != std::string::npos) {
         cache.insert({conn->requestp->url, resp});
         std::cout << "Initially get: " << cache[conn->requestp->url].get_etag() << std::endl;
-        std::cout << "Cached entry:" << conn->requestp->url << "-------" << conn->responsep->get_line() << std::endl;
+        std::cout << "Cached entry:" << conn->requestp->url << "-------" << resp.get_line() << std::endl;
     }
     
     std::cout << "HandleGet returned:" << conn->conn_id << std::endl;

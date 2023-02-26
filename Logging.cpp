@@ -40,12 +40,12 @@ void Logging::respondToClient(ConnParams *conn, std::string responseLine) {
     pthread_mutex_unlock(&mutex);
 }
 
-void Logging::serverRespond(ConnParams *conn) {
+void Logging::serverRespond(ConnParams *conn, std::string responseLine) {
     pthread_mutex_lock(&mutex);
-    std::cout << conn->conn_id << ": Received \"" << conn->responsep->get_line() << "\" from " << conn->requestp->host << std::endl;
+    std::cout << conn->conn_id << ": Received \"" << responseLine << "\" from " << conn->requestp->host << std::endl;
     std::ofstream logFile;
     logFile.open(filePath, std::ios_base::app);
-    logFile << conn->conn_id << ": Received \"" << conn->responsep->get_line() << "\" from " << conn->requestp->host << std::endl;
+    logFile << conn->conn_id << ": Received \"" << responseLine << "\" from " << conn->requestp->host << std::endl;
     logFile.close();
     pthread_mutex_unlock(&mutex);
 }
