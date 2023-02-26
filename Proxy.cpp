@@ -261,9 +261,11 @@ void Proxy::handleResponse(ConnParams* params, int cur_pos) {
     else if (params->requestp->method == "GET") {
         // if found in cache, see if need to revalidate
         if (cache.find(params->requestp->url) != cache.end()) {
+            std::cout << "Found in cache" << std::endl;
             handle_cache(params->requestp->url, params);
         }
         else {
+            std::cout << "Not found in cache" << std::endl;
             handleGET(params);
         }
         
@@ -287,7 +289,7 @@ void Proxy::handlePOST(ConnParams* conn, int cur_pos) {
     // check if chunked, handle differently
     if (checkChunk(conn->requestp->fullmsg)) {
         std::cout << "Chunked POST request" << std::endl;
-        handleChunked(conn, conn->requestp->fullmsg, conn->client_fd, conn->server_fd);
+        handleChunked(conn, conn->requestp->fullmsg, conn->client_fd, conn->server_fd, cur_pos);
     } else {
         std::cout << "Not chunked POST request" << std::endl;
         handleNonChunked(conn, conn->requestp->fullmsg, cur_pos, conn->client_fd, conn->server_fd);
@@ -315,7 +317,7 @@ void Proxy::handlePOST(ConnParams* conn, int cur_pos) {
     logObj.respondToClient(conn, conn->responsep->get_line());
     if (checkChunk(response)) {
         std::cout << "Chunked POST response" << std::endl;
-        handleChunked(conn, response, conn->server_fd, conn->client_fd);
+        handleChunked(conn, response, conn->server_fd, conn->client_fd, byte_first);
     } else {
         std::cout << "Not chunked POST response" << std::endl;
         handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
@@ -410,7 +412,7 @@ bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
         // check if chunked, handle differently
         if (checkChunk(response)) {
             std::cout << "Chunked revalidate response" << std::endl;
-            handleChunked(conn, response, conn->server_fd, conn->client_fd);
+            handleChunked(conn, response, conn->server_fd, conn->client_fd, byte_first);
         } else {
             std::cout << "Not chunked revalidate response" << std::endl;
             handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
@@ -442,35 +444,43 @@ void Proxy::handle_cache(std::string url, ConnParams* conn) {
     Response* response_cached = cache[url];
     if (response_cached->need_revalidation()) {
         if (!revalidate(response_cached, conn)) {
-    
+            std::cerr << "Revalidate failed, replaced cache" << std::endl;
             return;
         }
     }       
     // send the response back to the client
+    std::cout << "Retrieving from cache" << std::endl;
     retrieve_from_cache(url, conn);
     
     
 }
 
 
-void Proxy::handleChunked(ConnParams* conn, std::vector<char>& message, int recv_fd, int send_fd) {
+void Proxy::handleChunked(ConnParams* conn, std::vector<char>& message, int recv_fd, int send_fd, int cur_pos) {
     // send first message from from_id to to_id
-    send(send_fd, message.data(), message.size(), 0);
+    // send(send_fd, message.data(), message.size(), 0);
     // logObj.respondToClient(conn, conn->responsep->get_line());
 
     // while loop to receive the remaing response from the host server
-    vector<char> remain_msg(MAX_LENGTH, 0);
+    // vector<char> remain_msg(MAX_LENGTH, 0);
     while (1) {
-        int byte_count = recv(recv_fd, &remain_msg.data()[0], MAX_LENGTH, 0); // receive request from client
+        if (cur_pos >= message.size()) {
+            message.resize(message.size() + MAX_LENGTH);
+        }
+        int byte_count = recv(recv_fd, &message.data()[cur_pos], MAX_LENGTH, 0); // receive request from client
         std::cerr<< conn->conn_id << "HandleChunk: received byte_count: " << byte_count << std::endl;
-        if (byte_count <= 0) {
+        if (byte_count == -1) {
+            std::cerr << "Error: recv error" << std::endl;
+            return;
+        }
+        if (byte_count == 0) { // end of chunked response
             break;
         }
-        
-        // send remaining message each time
-        int sent = send(send_fd, remain_msg.data(), byte_count, 0);
-        std::cout << conn->conn_id << "HandleChunk: sent bytes: " << sent << std::endl << "sent data: " << remain_msg.data() << std::endl;
+        cur_pos += byte_count;
     }
+    // send sticked together
+    int sent = send(send_fd, message.data(), message.size(), 0);
+    std::cout << conn->conn_id << "HandleChunk: sent bytes: " << sent << std::endl << "sent data: " << message.data() << std::endl;
 }
 
 void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int cur_pos, int recv_fd, int send_fd) {
@@ -543,15 +553,19 @@ void Proxy::handleGET(ConnParams* conn) {
 
     // check if chunked
     if (checkChunk(response)) {
-        handleChunked(conn, response, conn->server_fd, conn->client_fd);
+        handleChunked(conn, response, conn->server_fd, conn->client_fd, cur_pos);
     }
     else {
         handleNonChunked(conn, response, cur_pos, conn->server_fd, conn->client_fd);
     }
     resp.parse_all_attributes(response);
     
-    cache.insert({conn->requestp->url, conn->responsep});
-    std::cout << "Cache entry:" << conn->requestp->url << "-------" << conn->responsep->get_line() << std::endl;
+    // only cache when response is 200 OK
+    if (resp.get_line().find("200 OK") != std::string::npos) {
+        cache.insert({conn->requestp->url, conn->responsep});
+        std::cout << "Cached entry:" << conn->requestp->url << "-------" << conn->responsep->get_line() << std::endl;
+    }
+    
     
 
     std::cout << "HandleGet returned:" << conn->conn_id << std::endl;

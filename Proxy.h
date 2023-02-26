@@ -27,7 +27,7 @@ class Proxy {
         static void handlePOST(ConnParams* params, int cur_pos);
         static void handleGET(ConnParams* params);
         static bool checkChunk(std::vector<char> message);
-        static void handleChunked(ConnParams* params, std::vector<char>& message, int recv_fd, int send_fd);
+        static void handleChunked(ConnParams* params, std::vector<char>& message, int recv_fd, int send_fd, int cur_pos);
         static void handleNonChunked(ConnParams* params, std::vector<char>& message, int cur_pos, int recv_fd, int send_fd);
 
         static bool revalidate(Response* cached_response, ConnParams* conn);

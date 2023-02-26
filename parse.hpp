@@ -47,7 +47,7 @@ inline std::string parse_header(std::vector<char> input_vec) {
     }
     else {
         std::cerr << "Header not found" << std::endl;
-        return NULL;
+        return "";
     }
 }
 
@@ -61,7 +61,7 @@ inline std::string parse_body(std::vector<char> input_vec) {
         return output;
     }
     else {
-        std::cerr << "Header not found" << std::endl;
-        return NULL;
+        std::cerr << "Body not found" << std::endl;
+        return "";
     }
 }
