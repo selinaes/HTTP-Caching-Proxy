@@ -21,7 +21,7 @@ std::string filepath = "/var/log/erss/proxy.log";
 std::string filepath1 = "./proxy.log";
 Logging logObj = Logging(filepath1, lock);
 
-std::unordered_map <std::string, Response*> cache; // key is url, value is response object
+std::unordered_map <std::string, Response> cache; // key is url, value is response object
 
 
 Request request_parse(vector<char> input_in) {
@@ -261,7 +261,7 @@ void Proxy::handleResponse(ConnParams* params, int cur_pos) {
     else if (params->requestp->method == "GET") {
         // if found in cache, see if need to revalidate
         if (cache.find(params->requestp->url) != cache.end()) {
-            std::cout << "Response cache get: " << cache[params->requestp->url]->get_etag() << std::endl;
+            std::cout << "Response cache get: " << cache[params->requestp->url].get_etag() << std::endl;
             std::cout << "Found in cache" << std::endl;
             handle_cache(params->requestp->url, params);
         }
@@ -386,10 +386,10 @@ void Proxy::handleCONNECT(ConnParams* conn) {
 }
 
 // Return true if revalidate success & can use cache, false if need to replace cache
-bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
+bool Proxy::revalidate(Response cached_response, ConnParams* conn) {
     // modify request  
-    std::cerr << cached_response->get_etag() << std::endl;
-    vector<char> modified_request = cached_response->modify_header_revalidate(conn->requestp->fullmsg);
+    std::cerr << cached_response.get_etag() << std::endl;
+    vector<char> modified_request = cached_response.modify_header_revalidate(conn->requestp->fullmsg);
     // send modified request to server and check if send successful
     int send_status = send(conn->server_fd, modified_request.data(), modified_request.size(), 0);
     if (send_status > 0) {
@@ -420,8 +420,8 @@ bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
             handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
         }
         conn->responsep->parse_all_attributes(response);
-        cache[conn->requestp->url] = conn->responsep;
-        std::cerr << "Revalidate get etag: " << cache[conn->requestp->url]->get_etag() << std::endl;
+        cache[conn->requestp->url] = *conn->responsep;
+        std::cerr << "Revalidate get etag: " << cache[conn->requestp->url].get_etag() << std::endl;
     }
     return false;
 }
@@ -429,10 +429,10 @@ bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
 
 void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
     // get response from the most updated cache
-    Response* response = cache[url];
+    Response response = cache[url];
     // send cached response to client
-    vector<char> header = response->get_header();
-    vector<char> body = response->get_body();
+    vector<char> header = response.get_header();
+    vector<char> body = response.get_body();
     // concatenate header and body
     vector<char> fullmsg;
     fullmsg.insert(fullmsg.end(), header.begin(), header.end());
@@ -444,9 +444,9 @@ void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
 
 // if the response is in cache, handle cache
 void Proxy::handle_cache(std::string url, ConnParams* conn) {
-    Response* response_cached = cache[url];
-    std::cout << "handle_cache etag: " << cache[url]->get_etag() << std::endl;
-    if (response_cached->need_revalidation()) {
+    Response response_cached = cache[url];
+    std::cout << "handle_cache etag: " << cache[url].get_etag() << std::endl;
+    if (response_cached.need_revalidation()) {
         if (!revalidate(response_cached, conn)) {
             std::cerr << "Revalidate failed, replaced cache" << std::endl;
             return;
@@ -566,13 +566,11 @@ void Proxy::handleGET(ConnParams* conn) {
     
     // only cache when response is 200 OK
     if (resp.get_line().find("200 OK") != std::string::npos) {
-        cache.insert({conn->requestp->url, conn->responsep});
-        std::cout << "Initially get: " << cache[conn->requestp->url]->get_etag() << std::endl;
+        cache.insert({conn->requestp->url, resp});
+        std::cout << "Initially get: " << cache[conn->requestp->url].get_etag() << std::endl;
         std::cout << "Cached entry:" << conn->requestp->url << "-------" << conn->responsep->get_line() << std::endl;
     }
     
-    
-
     std::cout << "HandleGet returned:" << conn->conn_id << std::endl;
 
 }

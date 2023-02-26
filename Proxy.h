@@ -30,7 +30,7 @@ class Proxy {
         static void handleChunked(ConnParams* params, std::vector<char>& message, int recv_fd, int send_fd, int cur_pos);
         static void handleNonChunked(ConnParams* params, std::vector<char>& message, int cur_pos, int recv_fd, int send_fd);
 
-        static bool revalidate(Response* cached_response, ConnParams* conn);
+        static bool revalidate(Response cached_response, ConnParams* conn);
         static void retrieve_from_cache(std::string url, ConnParams* conn);
         static void handle_cache(std::string url, ConnParams* conn);
 
