@@ -23,6 +23,9 @@ class Logging {
         void requestServer(ConnParams *conn); // ask server
         void respondToClient(ConnParams *conn, std::string responseLine); // from proxy to client
         void serverRespond(ConnParams *conn); // from server
+        void noteLog(std::string note);
+        void errorLog(std::string error);
+        void warningLog(std::string warning);
 
 };
 

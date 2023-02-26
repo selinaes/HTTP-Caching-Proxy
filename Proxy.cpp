@@ -21,7 +21,7 @@ std::string filepath = "/var/log/erss/proxy.log";
 std::string filepath1 = "./proxy.log";
 Logging logObj = Logging(filepath1, lock);
 
-
+std::unordered_map <std::string, Response*> cache; // key is url, value is response object
 
 
 Request request_parse(vector<char> input_in) {
@@ -61,7 +61,10 @@ Request request_parse(vector<char> input_in) {
         host_in = host_port_combined_string.substr(0, delimitter);
 
         // find the address (either relative or absolute) + set url
-        string address = line_in.substr(method_pos + 1);
+        string no_method_first_line = line_in.substr(method_pos + 1);
+        auto space_pos = no_method_first_line.find_first_of(" ");
+        string address = no_method_first_line.substr(0, space_pos);
+        
         if (address[0] == '/') {
             // relative address
             std::cerr << "Relative address" << endl;
@@ -71,6 +74,7 @@ Request request_parse(vector<char> input_in) {
             std::cerr << "Absolute address" << endl;
             url_in = address;
         }
+        std::cerr << "URL: " << url_in << endl;
     
         Request r;
         request_init(&r, method_in, host_in, port_in, input_in, line_in, url_in);
@@ -255,7 +259,14 @@ void Proxy::handleResponse(ConnParams* params, int cur_pos) {
     }
     // 2. Handle GET, POST, and CONNECT
     else if (params->requestp->method == "GET") {
-        handleGET(params);
+        // if found in cache, see if need to revalidate
+        if (cache.find(params->requestp->url) != cache.end()) {
+            handle_cache(params->requestp->url, params);
+        }
+        else {
+            handleGET(params);
+        }
+        
     }
 
     else if (params->requestp->method == "CONNECT") {
@@ -404,6 +415,8 @@ bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
             std::cout << "Not chunked revalidate response" << std::endl;
             handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
         }
+        conn->responsep->parse_all_attributes(response);
+        cache[conn->requestp->url] = conn->responsep;
     }
     return false;
 }
@@ -429,7 +442,7 @@ void Proxy::handle_cache(std::string url, ConnParams* conn) {
     Response* response_cached = cache[url];
     if (response_cached->need_revalidation()) {
         if (!revalidate(response_cached, conn)) {
-            
+    
             return;
         }
     }       
@@ -535,7 +548,12 @@ void Proxy::handleGET(ConnParams* conn) {
     else {
         handleNonChunked(conn, response, cur_pos, conn->server_fd, conn->client_fd);
     }
+    resp.parse_all_attributes(response);
     
+    cache.insert({conn->requestp->url, conn->responsep});
+    std::cout << "Cache entry:" << conn->requestp->url << "-------" << conn->responsep->get_line() << std::endl;
+    
+
     std::cout << "HandleGet returned:" << conn->conn_id << std::endl;
 
 }

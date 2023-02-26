@@ -106,9 +106,15 @@ bool Response::need_revalidation() {
 
 std::vector<char> Response::modify_header_revalidate(std::vector<char> message) {
     // if exists etag, then add if-none-match
-    std::string to_add;
+
     if (etag != "") {
-        to_add = "If-None-Match: " + etag + "\r\n";
+        // concatenate two string
+        std::string to_add;
+        std::string a1 = "If-None-Match: ";
+        std::string a2 = etag;
+        std::string a3 = "\r\n";
+        to_add = a1 + a2 + a3;
+        // to_add = "If-None-Match: " + etag + "\r\n";
         // loop to insert to_add to the end of header vector
         for (int i = 0; i < to_add.size(); i++) {
             message.push_back(to_add[i]);
@@ -116,10 +122,15 @@ std::vector<char> Response::modify_header_revalidate(std::vector<char> message) 
     }
     // if exists last-modified, then add if-modified-since
     if (last_modified != "") {
-        to_add = "If-Modified-Since: " + last_modified + "\r\n";
+        std::string to_add1;
+        std::string a11 = "If-Modified-Since: ";
+        std::string a21 = last_modified;
+        std::string a31 = "\r\n";
+        to_add1 = a11 + a21 + a31;
+        // to_add = "If-Modified-Since: " + last_modified + "\r\n";
         // loop to insert to_add to the end of header vector
-        for (int i = 0; i < to_add.size(); i++) {
-            message.push_back(to_add[i]);
+        for (int i = 0; i < to_add1.size(); i++) {
+            message.push_back(to_add1[i]);
         }
     }
     return message;
@@ -242,6 +253,25 @@ void Response::parse_etag() {
     }
 }
 
+void Response::parse_time() {
+    std::string header_str(header.begin(), header.end());
+    if (header_str.find("Date: ") != std::string::npos) {
+        auto date_start = header_str.find("Date: ");
+        auto date_string_start = header_str.substr(date_start + 6);
+        auto date_end_pos = date_string_start.find_first_of("\r\n");
+        auto date_string = date_string_start.substr(0, date_end_pos);
+        // convert date_string to time_t
+        struct tm tm;
+        strptime(date_string.c_str(), "%a, %d %b %Y %H:%M:%S %Z", &tm);
+        save_time = mktime(&tm);
+    }
+    else {
+        std::cerr << "HTTP Date not found. used now" << std::endl;
+        // create a time for now and use it
+        save_time = time(0);
+    }
+}
+
 
 void Response::parse_all_attributes(std::vector<char> input) {
     set_body(input);
@@ -250,6 +280,7 @@ void Response::parse_all_attributes(std::vector<char> input) {
     parse_expires();
     parse_last_modified();
     parse_etag();
+    parse_time();
 }
 
 std::vector<char> Response::get_body() {
@@ -259,6 +290,7 @@ std::vector<char> Response::get_body() {
 std::vector<char> Response::get_header() {
     return header;
 }
+
 
 
 

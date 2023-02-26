@@ -19,6 +19,7 @@ class Response {
         void parse_expires();
         void parse_last_modified();
         void parse_etag();
+        void parse_time();
         void parse_all_attributes(std::vector<char> input_in);
         std::vector<char> modify_header_revalidate(std::vector<char> message);
         // called when retrieving cache
