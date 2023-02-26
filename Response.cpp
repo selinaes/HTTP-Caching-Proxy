@@ -253,6 +253,10 @@ void Response::parse_etag() {
     }
 }
 
+std::string Response::get_etag() {
+    return etag;
+}
+
 void Response::parse_time() {
     std::string header_str(header.begin(), header.end());
     if (header_str.find("Date: ") != std::string::npos) {

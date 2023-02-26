@@ -387,6 +387,7 @@ void Proxy::handleCONNECT(ConnParams* conn) {
 // Return true if revalidate success & can use cache, false if need to replace cache
 bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
     // modify request  
+    std::cerr << cached_response->get_etag() << std::endl;
     vector<char> modified_request = cached_response->modify_header_revalidate(conn->requestp->fullmsg);
     // send modified request to server and check if send successful
     int send_status = send(conn->server_fd, modified_request.data(), modified_request.size(), 0);

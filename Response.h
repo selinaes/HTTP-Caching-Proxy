@@ -25,6 +25,7 @@ class Response {
         // called when retrieving cache
         bool check_stale();
         bool need_revalidation();
+        std::string get_etag();
 
     private:
         std::vector<char> header; // header
