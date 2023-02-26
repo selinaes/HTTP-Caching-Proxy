@@ -261,6 +261,7 @@ void Proxy::handleResponse(ConnParams* params, int cur_pos) {
     else if (params->requestp->method == "GET") {
         // if found in cache, see if need to revalidate
         if (cache.find(params->requestp->url) != cache.end()) {
+            std::cout << "Response cache get: " << cache[params->requestp->url]->get_etag() << std::endl;
             std::cout << "Found in cache" << std::endl;
             handle_cache(params->requestp->url, params);
         }
@@ -420,6 +421,7 @@ bool Proxy::revalidate(Response* cached_response, ConnParams* conn) {
         }
         conn->responsep->parse_all_attributes(response);
         cache[conn->requestp->url] = conn->responsep;
+        std::cerr << "Revalidate get etag: " << cache[conn->requestp->url]->get_etag() << std::endl;
     }
     return false;
 }
@@ -443,6 +445,7 @@ void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
 // if the response is in cache, handle cache
 void Proxy::handle_cache(std::string url, ConnParams* conn) {
     Response* response_cached = cache[url];
+    std::cout << "handle_cache etag: " << cache[url]->get_etag() << std::endl;
     if (response_cached->need_revalidation()) {
         if (!revalidate(response_cached, conn)) {
             std::cerr << "Revalidate failed, replaced cache" << std::endl;
