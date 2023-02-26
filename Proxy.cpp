@@ -546,9 +546,9 @@ void Proxy::handleGET(ConnParams* conn) {
     }
     std::cout << "Initial Response: " << response.data() << std::endl;
     
-    Response resp;
-    resp.set_line(response);
-    conn->responsep = &resp;
+    Response* resp;
+    resp->set_line(response);
+    conn->responsep = resp;
     logObj.serverRespond(conn);
 
 
@@ -559,10 +559,10 @@ void Proxy::handleGET(ConnParams* conn) {
     else {
         handleNonChunked(conn, response, cur_pos, conn->server_fd, conn->client_fd);
     }
-    resp.parse_all_attributes(response);
+    resp->parse_all_attributes(response);
     
     // only cache when response is 200 OK
-    if (resp.get_line().find("200 OK") != std::string::npos) {
+    if (resp->get_line().find("200 OK") != std::string::npos) {
         cache.insert({conn->requestp->url, conn->responsep});
         std::cout << "Cached entry:" << conn->requestp->url << "-------" << conn->responsep->get_line() << std::endl;
     }
