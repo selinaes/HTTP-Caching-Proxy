@@ -564,6 +564,7 @@ void Proxy::handleGET(ConnParams* conn) {
     // only cache when response is 200 OK
     if (resp.get_line().find("200 OK") != std::string::npos) {
         cache.insert({conn->requestp->url, conn->responsep});
+        std::cout << "Initially get: " << cache[conn->requestp->url]->get_etag() << std::endl;
         std::cout << "Cached entry:" << conn->requestp->url << "-------" << conn->responsep->get_line() << std::endl;
     }
     
