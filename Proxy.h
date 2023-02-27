@@ -1,4 +1,4 @@
-#include <string.h>
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -8,6 +8,10 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include <sstream>
+#include <regex>
+#include <algorithm>
+#include <iterator>
 #include "Logging.h"
 
 class Proxy {
@@ -21,7 +25,7 @@ class Proxy {
         void runProxy();
         static void * threadProcess(void* params);
         int acceptRequest(int proxyfd); // returns client fd
-        static int connectToHost(const char* hostname, const char* port); // returns host server fd
+        static int connectToHost(const char* hostname, const char* port, ConnParams* conn); // returns host server fd
         static void handleResponse(ConnParams* param, int cur_pos);
         static void handleCONNECT(ConnParams* params);
         static void handlePOST(ConnParams* params, int cur_pos);

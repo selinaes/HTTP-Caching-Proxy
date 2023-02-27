@@ -23,9 +23,12 @@ class Logging {
         void requestServer(ConnParams *conn); // ask server
         void respondToClient(ConnParams *conn, std::string responseLine); // from proxy to client
         void serverRespond(ConnParams *conn, std::string responseLine); // from server
-        void noteLog(std::string note);
-        void errorLog(std::string error);
-        void warningLog(std::string warning);
+        void noteLog(ConnParams *conn, std::string note);
+        void errorLog(ConnParams *conn, std::string error);
+        void warningLog(ConnParams *conn, std::string warning);
+        void insertCacheLog(ConnParams *conn, int situation, std::string reason, std::string expireTime);
+        void retrieveCacheLog(ConnParams *conn, int situation, std::string expiredAt);
+        void tunnelCloseLog(ConnParams *conn);
 
 };
 

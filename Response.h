@@ -14,7 +14,11 @@ class Response {
         void set_body(std::vector<char> input_in);
         std::vector<char> get_header();
         std::vector<char> get_body();
-        bool need_cache();
+        // used for logging insert Cache
+        std::string need_cache();
+        bool log_needRevalidate();
+        std::string get_expires();
+        // parsing
         void parse_cache_control();
         void parse_expires();
         void parse_last_modified();
@@ -24,6 +28,7 @@ class Response {
         std::vector<char> modify_header_revalidate(std::vector<char> message);
         // called when retrieving cache
         bool check_stale();
+        bool check_exceed_max_stale();
         bool need_revalidation();
         std::string get_etag();
 
@@ -45,5 +50,5 @@ class Response {
         std::string etag; 
         
         // save the time of response
-        time_t save_time;
+        time_t creation_time;
 };

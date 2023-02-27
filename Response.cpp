@@ -35,43 +35,69 @@ void::Response::set_body(std::vector<char> input_vec) {
     body = std::vector<char>(body_str.begin(), body_str.end());
 }
 
+// check expire time at receiving response
+std::string Response::get_expires() {
+    // get expires
+    if (expires != "") {
+        return expires;
+    } 
+    else {
+        return "";
+    }
+}
+
 // true for stale, false for fresh
 bool Response::check_stale() {
     // get current time
     time_t now = time(0);
-    // check max-age, if max-age freshness not passed, then the response is stale
-    if (max_age != -1) {
-        if (now - save_time < max_age) {
-            return false;
-        }
-        else {
+
+    // Check expires. when parsing, we already considered max-age precedent than expires
+    if (expires == "") {
+        return true; // just assume stale
+    }
+    else {
+        // convert expires to time_t
+        struct tm tm;
+        strptime(expires.c_str(), "%a, %d %b %Y %H:%M:%S %Z", &tm);
+        time_t expires_time = mktime(&tm);
+        // compare, now is end, expires is beginning. Difftime returns end-beginning
+        if (difftime(now, expires_time) > 0) {
             return true;
         }
-    }
-    // if doen't have max-age, then check expires; if expires, then the response is stale
-    else {
-        if (expires == "") {
+        else { // negative means expires later than now, so it's fresh
             return false;
-        }
-        else {
-            // convert expires to time_t
-            struct tm tm;
-            strptime(expires.c_str(), "%a, %d %b %Y %H:%M:%S %Z", &tm);
-            time_t expires_time = mktime(&tm);
-            // compare
-            if (expires_time < now) {
-                return true;
-            }
-            else {
-                return false;
-            }
         }
     }
 }
 
+// true for exceed max-stale, false for not exceed
+bool Response::check_exceed_max_stale(){
+    // first, check stale; if fresh, no need to check max-stale
+    if (!check_stale()) {
+        return false;
+    } else if (max_stale == -1) {
+        // get now time
+        time_t now = time(0);
+        // converts expires to time_t
+        struct tm tm;
+        strptime(expires.c_str(), "%a, %d %b %Y %H:%M:%S %Z", &tm);
+        time_t expires_time = mktime(&tm);
+        // add max-stale to expires time
+        time_t max_stale_time = expires_time + max_stale;
+        // compare now time with max_stale_time
+        if (difftime(now, max_stale_time) > 0) {
+            return true;
+        } else {
+            return false;
+        }
+    } else { // no max_stale, so stale means exceed
+        return true;
+    }
+
+}
 
 
-// Used when retrieving the response
+// Used when retrieving the response. True for need revalidation, False for no need
 bool Response::need_revalidation() {
     // first, check no-cache, because no-cache always revalidate
     if (no_cache) {
@@ -80,7 +106,7 @@ bool Response::need_revalidation() {
     // check freshness / stale
     else if (!check_stale()) {
         // if fresh, no need to revalidate
-        return true;
+        return false;
     }
     // If stale:
     // check must-revalidate or proxy-revalidate, if exist we need revalidation
@@ -92,16 +118,21 @@ bool Response::need_revalidation() {
         // get current time
         time_t now = time(0);
         // check max-stale
-        if (now - save_time < max_stale) {
-            return false;
+        // turn expires into time_t
+        struct tm tm;
+        strptime(expires.c_str(), "%a, %d %b %Y %H:%M:%S %Z", &tm);
+        time_t expired_time = mktime(&tm);
+        if (now - expired_time < max_stale) {
+            return false; // if within max_stale, we don't need revalidation
         }
         else {
             return true;
         }
     }
-    return false;
+    return true;
 
 }
+
 
 
 std::vector<char> Response::modify_header_revalidate(std::vector<char> message) {
@@ -137,8 +168,19 @@ std::vector<char> Response::modify_header_revalidate(std::vector<char> message) 
 }
 
 // Used when getting the response
-bool Response::need_cache() {
-    if (private_ || no_store) {
+std::string Response::need_cache() {
+    if (private_ ) {
+        return "response is private";
+    } else if (no_store) {
+        return "response is no-store";
+    }
+    else {
+        return "";
+    }
+}
+
+bool Response::log_needRevalidate() {
+    if (no_cache | must_revalidate | proxy_revalidate ) {
         return true;
     }
     else {
@@ -210,15 +252,27 @@ void Response::parse_cache_control() {
 
 void Response::parse_expires() {
     std::string header_str(header.begin(), header.end());
-    if (header_str.find("Expires: ") != std::string::npos) {
+    // if max-age exist, calculate expire from max-age, it should be creation_time + max-age of seconds
+    if (max_age != -1) {
+         // get creation time
+        struct tm * timeinfo;
+        timeinfo = localtime(&creation_time);
+        // add max-age to creation time
+        timeinfo->tm_sec += max_age;
+        // convert to string
+        char buffer[80];
+        strftime(buffer, 80, "%a, %d %b %Y %H:%M:%S %Z", timeinfo);
+        std::string str(buffer);
+        expires = str;
+    } else if (header_str.find("Expires: ") != std::string::npos) {
         auto expires_start = header_str.find("Expires: ");
         auto expires_string_start = header_str.substr(expires_start + 9);
         auto expires_end_pos = expires_string_start.find_first_of("\r\n");
         auto expires_string = expires_string_start.substr(0, expires_end_pos);
         expires = expires_string;
-    }
+    } 
     else {
-        std::cerr << "Expires not found" << std::endl;
+        std::cerr << "Neither Max-Age nor Expires found" << std::endl;
         expires = "";
     }
 }
@@ -267,12 +321,12 @@ void Response::parse_time() {
         // convert date_string to time_t
         struct tm tm;
         strptime(date_string.c_str(), "%a, %d %b %Y %H:%M:%S %Z", &tm);
-        save_time = mktime(&tm);
+        creation_time = mktime(&tm);
     }
     else {
         std::cerr << "HTTP Date not found. used now" << std::endl;
         // create a time for now and use it
-        save_time = time(0);
+        creation_time = time(0);
     }
 }
 
@@ -281,10 +335,11 @@ void Response::parse_all_attributes(std::vector<char> input) {
     set_body(input);
     set_header(input);
     parse_cache_control();
-    parse_expires();
     parse_last_modified();
-    parse_etag();
     parse_time();
+    parse_etag();
+    parse_expires();
+    
 }
 
 std::vector<char> Response::get_body() {

@@ -24,7 +24,7 @@ Logging logObj = Logging(filepath1, lock);
 std::unordered_map <std::string, Response> cache; // key is url, value is response object
 
 
-Request request_parse(vector<char> input_in) {
+Request request_parse(ConnParams *conn, vector<char> input_in) {
     string method_in;
     string host_in;
     string port_in;
@@ -67,14 +67,13 @@ Request request_parse(vector<char> input_in) {
         
         if (address[0] == '/') {
             // relative address
-            std::cerr << "Relative address" << endl;
             url_in = host_in + address;
+            logObj.noteLog(conn, "Relative address: " + url_in);
         } else {
             // absolute address
-            std::cerr << "Absolute address" << endl;
             url_in = address;
+            logObj.noteLog(conn, "Absolute address: " + url_in);
         }
-        std::cerr << "URL: " << url_in << endl;
     
         Request r;
         request_init(&r, method_in, host_in, port_in, input_in, line_in, url_in);
@@ -82,6 +81,7 @@ Request request_parse(vector<char> input_in) {
     }
     catch (exception & e) {
         cerr << "Host missing" << endl;
+        logObj.errorLog(conn, "Host missing");
         host_in = "";
         port_in = "";
         Request r;
@@ -148,7 +148,7 @@ void Proxy::runProxy() {
         pthread_mutex_unlock(&lock);
         pthread_create(&thread, NULL, threadProcess, (void*)&conn);
         if (pthread_detach(thread) != 0) {
-            std::cerr << "Error when detaching thread" << endl;
+            logObj.errorLog(&conn, "Error when detaching thread");
             shutdown(sockfd, SHUT_RDWR);
             return;
         }
@@ -172,7 +172,7 @@ int Proxy::acceptRequest(int proxyfd) {
     return client_fd;
 }
 
-int Proxy::connectToHost(const char * hostname, const char * port) {
+int Proxy::connectToHost(const char * hostname, const char * port, ConnParams * conn) {
     int status;
     struct addrinfo hints;
     struct addrinfo *servinfo;  // will point to the results
@@ -183,14 +183,14 @@ int Proxy::connectToHost(const char * hostname, const char * port) {
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
 
     if ((status = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
-        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+        logObj.errorLog(conn, "getaddrinfo error: " + string(gai_strerror(status)));
         exit(1);
     }
 
     // make a socket, connect to it:
     hostfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
     if (hostfd == -1) {
-        std::cerr << "Create socket error when initializing socket";
+        logObj.errorLog(conn, "Create socket error when initializing socket");
         exit(1);
     }
     
@@ -198,7 +198,7 @@ int Proxy::connectToHost(const char * hostname, const char * port) {
     int connect_status = connect(hostfd, servinfo->ai_addr, servinfo->ai_addrlen);
     if (connect_status == -1) {
         // print the connect error
-        fprintf(stderr, "connect error: %s\n", gai_strerror(connect_status));
+        logObj.errorLog(conn, "connect error: " + string(gai_strerror(connect_status)));
         exit(1);
     }
     freeaddrinfo(servinfo); // all done with this structure
@@ -212,16 +212,15 @@ void * Proxy::threadProcess(void* params) {
     int byte_count;
     byte_count = recv(conn->client_fd, &request.data()[0], MAX_LENGTH, 0); // receive request from client
     if (byte_count <= 0) {
-        pthread_mutex_lock(&lock);
-        std::cerr << "Doesn't receive anything";
-        pthread_mutex_unlock(&lock);
+        logObj.errorLog(conn, "Doesn't receive anything");
         return NULL; // handle?
     }
     // for debugging: request print out
     std::cout << request.data() << std::endl;
     
+    
     // parse request
-    Request r = request_parse(request);
+    Request r = request_parse(conn, request);
     // request_print(&r);
 
     // add request pointer to conn, so that logObj can use it.
@@ -235,7 +234,7 @@ void * Proxy::threadProcess(void* params) {
     //     std::cerr << "Port number is not 443 for CONNECT request";
     //     return NULL;
     // }
-    int hostfd = connectToHost(r.host.c_str(), r.port.c_str());
+    int hostfd = connectToHost(r.host.c_str(), r.port.c_str(), conn);
     
     // 3. Handle different types of requests (GET/POST/CONNECT) - with helper functions
     conn->server_fd = hostfd;
@@ -243,7 +242,7 @@ void * Proxy::threadProcess(void* params) {
     handleResponse(conn, byte_count);
     
     // 4. Close the sockets
-    std::cout << "Close the sockets for thread:" << conn->conn_id << std::endl;
+    logObj.noteLog(conn, "Close the sockets for thread");
     shutdown(conn->client_fd, 2);
     shutdown(hostfd, 2);
     return NULL;
@@ -254,19 +253,18 @@ void * Proxy::threadProcess(void* params) {
 void Proxy::handleResponse(ConnParams* params, int cur_pos) {
     // 1. Exclude methods that are not GET, POST, or CONNECT
     if (params->requestp->method != "GET" && params->requestp->method != "POST" && params->requestp->method != "CONNECT") {
-        std::cerr << "Method not supported";
+        logObj.errorLog(params, "Method not supported");
         return;
     }
     // 2. Handle GET, POST, and CONNECT
     else if (params->requestp->method == "GET") {
-        // if found in cache, see if need to revalidate
+        // if found in cache, handle cache
         if (cache.find(params->requestp->url) != cache.end()) {
-            std::cout << "Response cache get: " << cache[params->requestp->url].get_etag() << std::endl;
-            std::cout << "Found in cache" << std::endl;
+            // std::cout << "Response cache get: " << cache[params->requestp->url].get_etag() << std::endl;
             handle_cache(params->requestp->url, params);
         }
         else {
-            std::cout << "Not found in cache" << std::endl;
+            logObj.retrieveCacheLog(params, 0, ""); // not found in cache
             handleGET(params);
         }
         
@@ -302,7 +300,7 @@ void Proxy::handlePOST(ConnParams* conn, int cur_pos) {
     int byte_first = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
     // check if received response
     if (byte_first == 0) {
-        std::cerr << "No response from server -- POST";
+        logObj.errorLog(conn, "No response from server -- POST");
         return;
     }
     std::cerr<< "Response first data: " << response.data() << std::endl;
@@ -350,7 +348,7 @@ void Proxy::handleCONNECT(ConnParams* conn) {
 
         int select_status = select(maxfds+1, &readfds, NULL, NULL, NULL); // return ready to read file descriptors in readfds; don't care about writefds and exceptfds
         if (select_status == -1) {
-            std::cerr << "Select error";
+            logObj.errorLog(conn, "Select error");
             return;
         }
         vector<int> fds = {conn->client_fd, conn->server_fd};
@@ -387,12 +385,12 @@ void Proxy::handleCONNECT(ConnParams* conn) {
 // Return true if revalidate success & can use cache, false if need to replace cache
 bool Proxy::revalidate(Response cached_response, ConnParams* conn) {
     // modify request  
-    std::cerr << cached_response.get_etag() << std::endl;
+    // logObj.noteLog(conn, "Etage: " + cached_response.get_etag());
     vector<char> modified_request = cached_response.modify_header_revalidate(conn->requestp->fullmsg);
     // send modified request to server and check if send successful
     int send_status = send(conn->server_fd, modified_request.data(), modified_request.size(), 0);
     if (send_status > 0) {
-        std::cerr << "Send successful" << std::endl;
+        logObj.noteLog(conn, "Send Successful");
     }
 
     // receive response from server
@@ -400,7 +398,7 @@ bool Proxy::revalidate(Response cached_response, ConnParams* conn) {
     int byte_first = recv(conn->server_fd, &response.data()[0], MAX_LENGTH, 0); // receive request from client
     // check if received response
     if (byte_first == 0) {
-        std::cerr << "No response from server -- revalidate";
+        logObj.errorLog(conn, "No response from server -- revalidate");
         return false;
     }
     // check if 304
@@ -410,17 +408,33 @@ bool Proxy::revalidate(Response cached_response, ConnParams* conn) {
     }
     // if 200, update cache
     if (response_str.find("HTTP/1.1 200 OK") != std::string::npos) {
-        // check if chunked, handle differently
-        if (checkChunk(response)) {
-            std::cout << "Chunked revalidate response" << std::endl;
-            handleChunked(conn, response, conn->server_fd, conn->client_fd, byte_first);
-        } else {
-            std::cout << "Not chunked revalidate response" << std::endl;
-            handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
-        }
         cached_response.parse_all_attributes(response);
-        cache[conn->requestp->url] = cached_response;
-        std::cerr << "Revalidate get etag: " << cache[conn->requestp->url].get_etag() << std::endl;
+        // check if we need to cache
+        if (cached_response.need_cache() != ""){
+            logObj.insertCacheLog(conn, 0, cached_response.need_cache(), "");
+        } else {
+            logObj.noteLog(conn, "New Content from revalidation. Caching...");
+            if (cached_response.log_needRevalidate()){ // cases for must-revalidate, proxy-revalidate, no-cache
+                logObj.insertCacheLog(conn, 2, "", "");
+            }
+            else if (cached_response.get_expires() != "") { // most other cases, calculte expire from max-age OR expires
+                logObj.insertCacheLog(conn, 2, "", cached_response.get_expires());
+            } else { // rare cases, like having neither expires nor max-age
+                logObj.insertCacheLog(conn, 2, "", "");
+            }
+            // check if chunked, handle differently
+            if (checkChunk(response)) {
+                std::cout << "Chunked revalidate response" << std::endl;
+                handleChunked(conn, response, conn->server_fd, conn->client_fd, byte_first);
+            } else {
+                std::cout << "Not chunked revalidate response" << std::endl;
+                handleNonChunked(conn, response, byte_first, conn->server_fd, conn->client_fd);
+            }
+            
+            cache[conn->requestp->url] = cached_response;
+            // logObj.noteLog(conn, "Revalidate get etag: " + cache[conn->requestp->url].get_etag());
+        }
+        
     }
     return false;
 }
@@ -431,32 +445,49 @@ void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
     Response response = cache[url];
     // send cached response to client
     vector<char> header = response.get_header();
+    std::cout << "header: " << header.data() << std::endl;
     vector<char> body = response.get_body();
+    std::cout << "body: " << body.data() << std::endl;
     // concatenate header and body
     vector<char> fullmsg;
     fullmsg.insert(fullmsg.end(), header.begin(), header.end());
+    // insert "/r/n/r/n" to fullmsg
+    std::string delimit = "\r\n\r\n";
+    std::vector<char> delimit_v(delimit.begin(), delimit.end());
+    fullmsg.insert(fullmsg.end(), delimit_v.begin(), delimit_v.end());
+    fullmsg.insert(fullmsg.end(), body.begin(), body.end());
+    std::cout << "fullmsg: " << fullmsg.data() << std::endl;
     // ? does it need to do while loop to send all the body?
-    int send_status = send(conn->client_fd, fullmsg.data(),fullmsg.size(), 0);
-    
+    int sent_size = send(conn->client_fd, fullmsg.data(),fullmsg.size(), 0);
+    std::cout << "sent_size: " << sent_size << std::endl;
 }
 
 
 // if the response is in cache, handle cache
 void Proxy::handle_cache(std::string url, ConnParams* conn) {
     Response response_cached = cache[url];
-    std::cout << "handle_cache etag: " << cache[url].get_etag() << std::endl;
-    if (response_cached.need_revalidation()) {
+    // std::cout << "handle_cache etag: " << cache[url].get_etag() << std::endl;
+    // See if totally expired (exceeded max_stale)
+    if (response_cached.check_exceed_max_stale()){
+        logObj.retrieveCacheLog(conn, 1, response_cached.get_expires());
+        handleGET(conn); // totally expired, so need to GET again
+        return;
+    } 
+    // Otherwise, see if need to revalidate
+    if (response_cached.need_revalidation()) { // need to revalidate
+        logObj.retrieveCacheLog(conn, 2, "");
         if (!revalidate(response_cached, conn)) {
-            std::cerr << "Revalidate failed, replaced cache" << std::endl;
+            logObj.errorLog(conn, "Revalidate failed, replaced cache");
             return;
         }
+    } else { // no need to revalidate, valid! OR COULD ALSO BE USING MAX_STALE
+        logObj.retrieveCacheLog(conn, 3, "");
     }       
     // send the response back to the client
-    std::cout << "Retrieving from cache" << std::endl;
+    logObj.noteLog(conn, "Retrieving from cache");
     retrieve_from_cache(url, conn);
-    
-    
 }
+
 
 
 void Proxy::handleChunked(ConnParams* conn, std::vector<char>& message, int recv_fd, int send_fd, int cur_pos) {
@@ -473,7 +504,7 @@ void Proxy::handleChunked(ConnParams* conn, std::vector<char>& message, int recv
         int byte_count = recv(recv_fd, &message.data()[cur_pos], MAX_LENGTH, 0); // receive request from client
         std::cerr<< conn->conn_id << "HandleChunk: received byte_count: " << byte_count << std::endl;
         if (byte_count == -1) {
-            std::cerr << "Error: recv error" << std::endl;
+            logObj.errorLog(conn, "Error: recv error");
             return;
         }
         if (byte_count == 0) { // end of chunked response
@@ -483,12 +514,12 @@ void Proxy::handleChunked(ConnParams* conn, std::vector<char>& message, int recv
     }
     // send sticked together
     int sent = send(send_fd, message.data(), message.size(), 0);
-    std::cout << conn->conn_id << "HandleChunk: sent bytes: " << sent << std::endl << "sent data: " << message.data() << std::endl;
+    logObj.noteLog(conn, "HandleChunk: sent bytes: " + std::to_string(sent));
 }
 
 void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int cur_pos, int recv_fd, int send_fd) {
     if (get_body_length(message) == -1 || get_header_length(message) == -1) {
-        std::cerr << "Error: invalid response" << std::endl;
+        logObj.errorLog(conn, "Error: invalid response");
         return;
     }
     else {
@@ -499,7 +530,7 @@ void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int 
         while (cur_pos < total_length) {
             int byte_count = recv(recv_fd, &message.data()[cur_pos], MAX_LENGTH, 0); // receive request from client           
             if (byte_count < 0) {
-                std::perror("Error: recv");
+                logObj.errorLog(conn, "Error: recv error");
                 return;
             }
             std::cerr<< conn->conn_id << "HandleNonChunk: received byte_count: " << byte_count << std::endl;
@@ -510,13 +541,12 @@ void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int 
         }
         // send the full response back to the client
         int sent = send(send_fd, message.data(), message.size(), 0);
-        std::cout << conn->conn_id << "HandleNonChunk: seny bytes: " << sent << std::endl;
+        logObj.noteLog(conn, "HandleNonChunk: sent bytes: " + std::to_string(sent));
         // logObj.respondToClient(conn, conn->responsep->get_line());
     }
 
     // std::cerr<< "Length is: " << length << std::endl;
-    std::cerr << "HandleNonChunk Sent Full MSG: " << message.data() << std::endl;
- 
+    logObj.respondToClient(conn, "HandleNonChunk Sent Full MSG: " + std::to_string(message.size()) + " bytes"); 
     return;
 }
 
@@ -543,7 +573,7 @@ void Proxy::handleGET(ConnParams* conn) {
     cur_pos += byte_count;
     // check if received response
     if (byte_count == 0) {
-        std::cerr << "No response from server";
+        logObj.errorLog(conn, "Error: No response from server");
         return;
     }
     std::cout << "Initial Response: " << response.data() << std::endl;
@@ -564,11 +594,24 @@ void Proxy::handleGET(ConnParams* conn) {
     
     // only cache when response is 200 OK
     if (resp.get_line().find("200 OK") != std::string::npos) {
-        cache.insert({conn->requestp->url, resp});
-        std::cout << "Initially get: " << cache[conn->requestp->url].get_etag() << std::endl;
-        std::cout << "Cached entry:" << conn->requestp->url << "-------" << resp.get_line() << std::endl;
+        if (resp.need_cache() != ""){
+            logObj.insertCacheLog(conn, 0, resp.need_cache(), "");
+        } else {
+            if (resp.log_needRevalidate()){ // cases for must-revalidate, proxy-revalidate, no-cache
+                logObj.insertCacheLog(conn, 2, "", "");
+            }
+            else if (resp.get_expires() != "") { // most other cases, calculte expire from max-age OR expires
+                logObj.insertCacheLog(conn, 2, "", resp.get_expires());
+            } else { // rare cases, like having neither expires nor max-age
+                logObj.insertCacheLog(conn, 2, "", "");
+            }
+            cache.insert({conn->requestp->url, resp});
+            std::cout << "Initially get: " << cache[conn->requestp->url].get_etag() << std::endl;      
+            std::cout << "Cached entry:" << conn->requestp->url << "-------" << resp.get_line() << std::endl;
+        }
+        
     }
     
-    std::cout << "HandleGet returned:" << conn->conn_id << std::endl;
+    logObj.noteLog(conn, "HandleGet returned");
 
 }
