@@ -32,9 +32,14 @@ int main() {
         exit(1);
     }
     else if (pid > 0) { 
-        // Parent process, exit
-        printf("Parent process, exit");
-        exit(0);
+        if (pid == 1) {
+            std::cout << "init process pid, not exiting" << std::endl;
+        } else {
+            // Parent process, exit
+            printf("Parent processha, exit");
+            exit(0);
+        }
+        
     }
 
     // Child process, continue
@@ -73,14 +78,18 @@ int main() {
 
     // Fork second time, not be a session leader
     pid_t pid2 = fork();
-    if (pid2 < 0) {
-        perror("fork failed");
-        exit(1);
+    if (pid2 != 1) {
+        if (pid2 < 0) {
+            perror("fork failed");
+            exit(1);
+        }
+        else if (pid2 > 0) { 
+            // Parent process, exit
+            exit(0);
+        }
     }
-    else if (pid2 > 0) { 
-        // Parent process, exit
-        exit(0);
-    }
+    
+
     
     // Do the work
     Proxy * proxy = new Proxy(hostname, port);

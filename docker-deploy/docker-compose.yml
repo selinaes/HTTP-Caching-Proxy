@@ -3,7 +3,7 @@ version: '2'
 services:
   main:
     build: ./src
-    command: bash -c "./main"
+    command: bash -c "./run.sh"
     volumes: 
       - ./src:/code
       - /var/log/erss:/var/log/erss:rw
