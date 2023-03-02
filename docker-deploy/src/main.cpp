@@ -33,6 +33,7 @@ int main() {
     }
     else if (pid > 0) { 
         // Parent process, exit
+        printf("Parent process, exit");
         exit(0);
     }
 
