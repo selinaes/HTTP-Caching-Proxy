@@ -17,8 +17,8 @@ using namespace std;
  
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 int MAX_LENGTH = 65536;
-std::string filepath = "/var/log/erss/proxy.log";
-std::string filepath1 = "./proxy.log";
+std::string filepath1 = "/var/log/erss/proxy.log";
+std::string filepath = "./proxy.log";
 Logging logObj = Logging(filepath1, lock);
 
 std::unordered_map <std::string, Response> cache; // key is url, value is response object
@@ -167,7 +167,7 @@ int Proxy::acceptRequest(int proxyfd) {
     client_fd = accept(proxyfd, (struct sockaddr *)&their_addr, &addr_size);
     if (client_fd == -1) {
         std::cerr << "Accept error when initializing socket";
-        exit(1);
+        pthread_exit(NULL);
     }
     return client_fd;
 }
@@ -184,14 +184,14 @@ int Proxy::connectToHost(const char * hostname, const char * port, ConnParams * 
 
     if ((status = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
         logObj.errorLog(conn, "getaddrinfo error: " + string(gai_strerror(status)));
-        exit(1);
+        pthread_exit(NULL);
     }
 
     // make a socket, connect to it:
     hostfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
     if (hostfd == -1) {
         logObj.errorLog(conn, "Create socket error when initializing socket");
-        exit(1);
+        pthread_exit(NULL);
     }
     
     // connect to the host
@@ -199,7 +199,7 @@ int Proxy::connectToHost(const char * hostname, const char * port, ConnParams * 
     if (connect_status == -1) {
         // print the connect error
         logObj.errorLog(conn, "connect error: " + string(gai_strerror(connect_status)));
-        exit(1);
+        pthread_exit(NULL);
     }
     freeaddrinfo(servinfo); // all done with this structure
     return hostfd;
@@ -365,10 +365,12 @@ void Proxy::handleCONNECT(ConnParams* conn) {
                 vector <char> buffer(MAX_LENGTH, 0);
                 int byte_count = recv(fd, &buffer.data()[0], MAX_LENGTH, 0); // receive request from client
                 if (byte_count <= 0) {
+                    logObj.tunnelCloseLog(conn);
                     return;
                 }
                 int send_status = send(otherfd, &buffer.data()[0], byte_count, 0);
                 if (send_status <= 0) {
+                    logObj.tunnelCloseLog(conn);
                     return;
                 }
             }
@@ -414,12 +416,12 @@ bool Proxy::revalidate(Response cached_response, ConnParams* conn) {
             logObj.insertCacheLog(conn, 0, cached_response.need_cache(), "");
         } else {
             logObj.noteLog(conn, "New Content from revalidation. Caching...");
-            if (cached_response.log_needRevalidate()){ // cases for must-revalidate, proxy-revalidate, no-cache
+            if (cached_response.log_needRevalidate()){ // cases for no-cache or max-age 0
                 logObj.insertCacheLog(conn, 2, "", "");
             }
             else if (cached_response.get_expires() != "") { // most other cases, calculte expire from max-age OR expires
-                logObj.insertCacheLog(conn, 2, "", cached_response.get_expires());
-            } else { // rare cases, like having neither expires nor max-age
+                logObj.insertCacheLog(conn, 1, "", cached_response.get_expires());
+            } else { // very rare cases, like having neither expires nor max-age
                 logObj.insertCacheLog(conn, 2, "", "");
             }
             // check if chunked, handle differently
@@ -466,23 +468,30 @@ void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
 // if the response is in cache, handle cache
 void Proxy::handle_cache(std::string url, ConnParams* conn) {
     Response response_cached = cache[url];
-    // std::cout << "handle_cache etag: " << cache[url].get_etag() << std::endl;
-    // See if totally expired (exceeded max_stale)
+    // totally expired, no retrieving, directly GET again. Also, delete the cache
     if (response_cached.check_exceed_max_stale()){
         logObj.retrieveCacheLog(conn, 1, response_cached.get_expires());
+        logObj.warningLog(conn, "Cached response exceeded max stale, not usable, delete & re-GET");
         handleGET(conn); // totally expired, so need to GET again
         return;
     } 
-    // Otherwise, see if need to revalidate
-    if (response_cached.need_revalidation()) { // need to revalidate
-        logObj.retrieveCacheLog(conn, 2, "");
+    // See if cache need revalidation, or still fresh
+    if (response_cached.need_revalidation()){
+        // need validation from the start
+        if (response_cached.log_needRevalidate()){
+            logObj.retrieveCacheLog(conn, 2, "");
+        } else {
+            logObj.retrieveCacheLog(conn, 1, response_cached.get_expires());
+        }
+        // Go revalidate it
         if (!revalidate(response_cached, conn)) {
             logObj.errorLog(conn, "Revalidate failed, replaced cache");
             return;
         }
-    } else { // no need to revalidate, valid! OR COULD ALSO BE USING MAX_STALE
+    } else { // fresh for requester point of view, real fresh + within max-stale
         logObj.retrieveCacheLog(conn, 3, "");
-    }       
+    }
+
     // send the response back to the client
     logObj.noteLog(conn, "Retrieving from cache");
     retrieve_from_cache(url, conn);
@@ -542,11 +551,14 @@ void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int 
         // send the full response back to the client
         int sent = send(send_fd, message.data(), message.size(), 0);
         logObj.noteLog(conn, "HandleNonChunk: sent bytes: " + std::to_string(sent));
+        std::cout << "sent data:" << message.data() << std::endl;
         // logObj.respondToClient(conn, conn->responsep->get_line());
     }
 
     // std::cerr<< "Length is: " << length << std::endl;
     logObj.respondToClient(conn, "HandleNonChunk Sent Full MSG: " + std::to_string(message.size()) + " bytes"); 
+
+
     return;
 }
 
@@ -597,11 +609,11 @@ void Proxy::handleGET(ConnParams* conn) {
         if (resp.need_cache() != ""){
             logObj.insertCacheLog(conn, 0, resp.need_cache(), "");
         } else {
-            if (resp.log_needRevalidate()){ // cases for must-revalidate, proxy-revalidate, no-cache
+            if (resp.log_needRevalidate()){ // cases for no-cache or max-age is 0
                 logObj.insertCacheLog(conn, 2, "", "");
             }
             else if (resp.get_expires() != "") { // most other cases, calculte expire from max-age OR expires
-                logObj.insertCacheLog(conn, 2, "", resp.get_expires());
+                logObj.insertCacheLog(conn, 1, "", resp.get_expires());
             } else { // rare cases, like having neither expires nor max-age
                 logObj.insertCacheLog(conn, 2, "", "");
             }

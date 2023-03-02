@@ -179,8 +179,8 @@ std::string Response::need_cache() {
     }
 }
 
-bool Response::log_needRevalidate() {
-    if (no_cache | must_revalidate | proxy_revalidate ) {
+bool Response::log_needRevalidate() { // no-cache or max-age is 0
+    if (no_cache | max_age == 0 ) {
         return true;
     }
     else {

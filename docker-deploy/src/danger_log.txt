@@ -14,3 +14,17 @@ two helper functions into "inline" to solve the problem.
 
 * make sure to close socket fds after use (ex. at the end of each thread), and also make sure to return
 from each thread (achieving the same effect as pthread_exit)
+
+* when we first moved to docker, we could successfully run our proxy, but cannot write into /var/log/erss
+actually, when we examine the file system in docker container, there's even no /var/log/erss directory.
+Finally, we added "chmod 777" for the /erss directory, and also changed the volume permission to 'rw' to
+successfully have a /erss/proxy.log
+
+* after "sudo docker-compose up" we need to "sudo docker-compose down -v" everytime before we re-compose
+docker. If we don't do that, the same docker will run each time. If we run "sudo docker ps" in another 
+window, we will see it is the same container number each time, if we don't do compose down.
+
+* since we run "./main" each time in the docker, we will need to "make clean" and "make main" manually
+each time when we changed code, to get the latest binary running in docker. Because in Dockerfile we only
+copied everything from the current working directory into docker, but we didn't make new versions after
+started docker.
