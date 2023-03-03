@@ -122,7 +122,7 @@ void Proxy::runProxy() {
     int bind_status = bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
     if (bind_status == -1) {
         // print the bind status
-        fprintf(stderr, "bind error: %s\n", gai_strerror(bind_status));
+        fprintf(stderr, "bind error: %s\n", strerror(bind_status));
         exit(1);
     }
     

@@ -11,16 +11,16 @@
 
 
 using namespace std;
-// int main() {
-//     const char * hostname = "0.0.0.0";
-//     const char * port = "12345";
-//     Proxy * proxy = new Proxy(hostname, port);
-//     proxy->runProxy();
-//     delete proxy;
-//     return 1;
-// }
-
 int main() {
+    const char * hostname = "0.0.0.0";
+    const char * port = "12345";
+    Proxy * proxy = new Proxy(hostname, port);
+    proxy->runProxy();
+    delete proxy;
+    return 1;
+}
+
+int main_demonized() {
     const char * hostname = "0.0.0.0";
     const char * port = "12345";
 
@@ -32,13 +32,13 @@ int main() {
         exit(1);
     }
     else if (pid > 0) { 
-        if (pid == 1) {
-            std::cout << "init process pid, not exiting" << std::endl;
-        } else {
+        // if (pid == 1) {
+        //     std::cout << "init process pid, not exiting" << std::endl;
+        // } else {
             // Parent process, exit
             printf("Parent processha, exit");
             exit(0);
-        }
+        // }
         
     }
 
@@ -78,7 +78,7 @@ int main() {
 
     // Fork second time, not be a session leader
     pid_t pid2 = fork();
-    if (pid2 != 1) {
+    // if (pid2 != 1) {
         if (pid2 < 0) {
             perror("fork failed");
             exit(1);
@@ -87,7 +87,7 @@ int main() {
             // Parent process, exit
             exit(0);
         }
-    }
+    // }
     
 
     

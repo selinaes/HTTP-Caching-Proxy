@@ -28,3 +28,5 @@ window, we will see it is the same container number each time, if we don't do co
 each time when we changed code, to get the latest binary running in docker. Because in Dockerfile we only
 copied everything from the current working directory into docker, but we didn't make new versions after
 started docker.
+
+* When running in docker, making it demonize brings a lot of problems (ex. )
