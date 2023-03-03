@@ -1,5 +1,5 @@
 * Each time we bind with port "12345" for a while, our  
-the run will fail with "bind error" 
+the run will fail with "bind error" This is because 
 
 * When we passed in the port "12345" from the Proxy constructor, it always errors out
 at the part of the first getaddr(), saying "getaddrinfo error: Servname not supported for ai_socktype"
@@ -33,4 +33,7 @@ started docker.
 
 * "\r\n"
 
-* 
+* When printing out error message, we should make sure the correct text description is printed. For example,
+we used "gai_strerror(status)" to print the error for both getaddrinfo() and bind(), so we see an error 
+"bind error: bad flag value" but actually this interpretation is only for gai = getaddrinfo, and we should
+instead use perror(strerror(errno)) to get the correct message: Address already in use

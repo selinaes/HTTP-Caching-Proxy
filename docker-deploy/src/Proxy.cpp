@@ -116,6 +116,31 @@ bool is_malformed_request(std::string request) {
     return false;
 }
 
+
+bool is_malformed_response(std::string response) {
+    std::string response_line = response.substr(0, response.find("\r\n"));
+    std::regex response_line_regex(R"(HTTP/\d+\.\d+\s+(\d+)\s+(.*))");
+    std::smatch response_line_match;
+    if (!std::regex_match(response_line, response_line_match, response_line_regex)) {
+        std::cout << "Response line is not in the expected format, response is malformed" << std::endl;
+        return true; // Response line is not in the expected format, response is malformed
+    }
+    // Check for incomplete or missing information
+    // find status code
+    std::string status_code = response_line_match[1];
+
+
+    if (status_code == "200" && response.find("\r\n\r\n") == std::string::npos) {
+        std::cout << "Response body/header delimeter missing, response is malformed" << std::endl;
+        return true; 
+    }
+
+    std::cout << "Response is valid" << std::endl;
+    // If all checks pass, the response is likely valid
+    return false;
+}
+
+
 // 1. Need a while loop to listen requests (accept())
 // 2. Create a socket after recv the reqeust
 void Proxy::runProxy() {
@@ -344,6 +369,17 @@ void Proxy::handlePOST(ConnParams* conn, int cur_pos) {
     }
     std::cerr<< "Response first data: " << response.data() << std::endl;
     send(conn->client_fd, response.data(), byte_first, 0); // send the amount received
+
+    // Check if response is malformed
+    std::string response_str(response.begin(), response.end());
+    if (is_malformed_response(response_str)) {
+        logObj.errorLog(conn->conn_id, "Error: Malformed response");
+        // send 502 error to client
+        send(conn->client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\n", 28, 0);
+        std::string responseLine = "HTTP/1.1 502 Bad Gateway";
+        logObj.respondToClient(conn->conn_id, responseLine);
+        return;
+    }
 
     Response resp;
     resp.set_line(response);
@@ -631,7 +667,7 @@ void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int 
     }
 
     // std::cerr<< "Length is: " << length << std::endl;
-    logObj.respondToClient(conn->client_fd, "HandleNonChunk Sent Full MSG: " + std::to_string(message.size()) + " bytes"); 
+    // logObj.respondToClient(conn->client_fd, "HandleNonChunk Sent Full MSG: " + std::to_string(message.size()) + " bytes"); 
 
 
     return;
@@ -665,6 +701,17 @@ void Proxy::handleGET(ConnParams* conn) {
     }
     std::cout << "Initial Response: " << response.data() << std::endl;
     
+    // Check if response is malformed
+    std::string response_str(response.begin(), response.end());
+    if (is_malformed_response(response_str)) {
+        logObj.errorLog(conn->conn_id, "Error: Malformed response");
+        // send 502 error to client
+        send(conn->client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\n", 28, 0);
+        std::string responseLine = "HTTP/1.1 502 Bad Gateway";
+        logObj.respondToClient(conn->conn_id, responseLine);
+        return;
+    }
+
     Response resp;
     resp.set_line(response);
     logObj.serverRespond(conn->conn_id, resp.get_line(), conn->requestp->host);
@@ -677,6 +724,7 @@ void Proxy::handleGET(ConnParams* conn) {
     else {
         handleNonChunked(conn, response, cur_pos, conn->server_fd, conn->client_fd);
     }
+    logObj.respondToClient(conn->conn_id, resp.get_line());
     resp.parse_all_attributes(response);
     
     // only cache when response is 200 OK

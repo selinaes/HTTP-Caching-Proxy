@@ -1,9 +1,63 @@
-CONNECT google.com:443 HTTP/1.1
-Host: google.com:443
+#1.GET Testing:
+http://httpbin.org/forms/post
+
+Result:
+7: NOTE Absolute address: http://httpbin.org/forms/post
+7: "GET http://httpbin.org/forms/post HTTP/1.1" from 10.197.176.144@ Thu Mar  2 23:23:31 2023
+
+7: not in cache
+7: Requesting "GET http://httpbin.org/forms/post HTTP/1.1" from httpbin.org
+7: Received "HTTP/1.1 200 OK" from httpbin.org
+7: NOTE HandleNonChunk: sent bytes: 1636
+7: cached, expires at Fri, 03 Mar 2023 04:23:8223 EST
+7: NOTE HandleGet returned
+7: NOTE Close the sockets for thread
+
+9: NOTE Absolute address: http://httpbin.org/favicon.ico
+9: "GET http://httpbin.org/favicon.ico HTTP/1.1" from 10.197.176.144@ Thu Mar  2 23:23:31 2023
+
+9: not in cache
+9: Requesting "GET http://httpbin.org/favicon.ico HTTP/1.1" from httpbin.org
+9: Received "HTTP/1.1 404 NOT FOUND" from httpbin.org
+9: NOTE HandleNonChunk: sent bytes: 463
+9: NOTE HandleGet returned
+9: NOTE Close the sockets for thread
 
 
-For GET:
-http://info.cern.ch/
 
-Another GET: For Testing "304 Not Modified"
-http://info.cern.ch/
+
+#2.POST testing:
+Adding data to http://httpbin.org/forms/post form and click submit
+
+Result:
+10: NOTE Absolute address: http://httpbin.org/post
+10: "POST http://httpbin.org/post HTTP/1.1" from 10.197.176.144@ Thu Mar  2 23:23:49 2023
+
+10: Requesting "POST http://httpbin.org/post HTTP/1.1" from httpbin.org
+10: NOTE HandleNonChunk: sent bytes: 599
+10: Received "HTTP/1.1 200 OK" from httpbin.org
+10: Responding "HTTP/1.1 200 OK"
+10: NOTE HandleNonChunk: sent bytes: 1180
+10: NOTE Close the sockets for thread
+
+
+
+
+
+#3.Cache testing:
+Visit http://httpbin.org/forms/post again
+
+Result:
+19: NOTE Absolute address: http://httpbin.org/forms/post
+19: "GET http://httpbin.org/forms/post HTTP/1.1" from 10.197.176.144@ Thu Mar  2 23:24:21 2023
+
+19: in cache, valid
+19: NOTE Retrieving from cache
+19: NOTE Close the sockets for thread
+
+
+
+
+
+#4. Chunked message:
+http://www.httpwatch.com/httpgallery/chunked/chunkedimage.aspx
