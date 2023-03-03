@@ -19,16 +19,16 @@ class Logging {
 
     public:
         Logging(std::string filepath, pthread_mutex_t lock) : filePath(filepath), mutex(lock) {}
-        void clientRequest(ConnParams *conn); // from client
-        void requestServer(ConnParams *conn); // ask server
-        void respondToClient(ConnParams *conn, std::string responseLine); // from proxy to client
-        void serverRespond(ConnParams *conn, std::string responseLine); // from server
-        void noteLog(ConnParams *conn, std::string note);
-        void errorLog(ConnParams *conn, std::string error);
-        void warningLog(ConnParams *conn, std::string warning);
-        void insertCacheLog(ConnParams *conn, int situation, std::string reason, std::string expireTime);
-        void retrieveCacheLog(ConnParams *conn, int situation, std::string expiredAt);
-        void tunnelCloseLog(ConnParams *conn);
+        void clientRequest(int conn_id, int client_fd, std::string line); // from client
+        void requestServer(int conn_id, std::string line, std::string host); // ask server
+        void respondToClient(int conn_id, std::string responseLine); // from proxy to client
+        void serverRespond(int conn_id, std::string responseLine, std::string host); // from server
+        void noteLog(int conn_id, std::string note);
+        void errorLog(int conn_id, std::string error);
+        void warningLog(int conn_id, std::string warning);
+        void insertCacheLog(int conn_id, int situation, std::string reason, std::string expireTime);
+        void retrieveCacheLog(int conn_id, int situation, std::string expiredAt);
+        void tunnelCloseLog(int conn_id);
 
 };
 
