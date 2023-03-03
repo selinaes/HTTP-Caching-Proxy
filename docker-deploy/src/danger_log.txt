@@ -1,5 +1,5 @@
-* If we try to print to std::cout and try to print a char[] or a string, 
-the run will fail with "bind error: Bad value for ai_flags" 
+* Each time we bind with port "12345" for a while, our  
+the run will fail with "bind error" 
 
 * When we passed in the port "12345" from the Proxy constructor, it always errors out
 at the part of the first getaddr(), saying "getaddrinfo error: Servname not supported for ai_socktype"
@@ -30,3 +30,7 @@ copied everything from the current working directory into docker, but we didn't 
 started docker.
 
 * When running in docker, making it demonize brings a lot of problems (ex. )
+
+* "\r\n"
+
+* 

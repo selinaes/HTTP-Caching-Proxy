@@ -16,10 +16,11 @@
 using namespace std;
  
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t cache_lock = PTHREAD_MUTEX_INITIALIZER;
 int MAX_LENGTH = 65536;
 std::string filepath1 = "/var/log/erss/proxy.log";
 std::string filepath = "./proxy.log";
-Logging logObj = Logging(filepath1, lock);
+Logging logObj = Logging(filepath, lock);
 
 std::unordered_map <std::string, Response> cache; // key is url, value is response object
 
@@ -91,6 +92,29 @@ Request request_parse(ConnParams *conn, vector<char> input_in) {
    
 }
 
+bool is_malformed_request(std::string request) {
+    // Check for invalid syntax
+    // Check for invalid syntax
+    // find the first line of the request
+    std::string request_line = request.substr(0, request.find("\r\n"));
+    std::regex request_line_regex(R"((GET|POST|CONNECT)\s+(.*)\s+(HTTP/\d+\.\d+))");
+    std::smatch request_line_match;
+    if (!std::regex_match(request_line, request_line_match, request_line_regex)) {
+        std::cout << "Request line is not in the expected format, request is malformed" << std::endl;
+        return true; // Request line is not in the expected format, request is malformed
+    }
+    // Check for incomplete or missing information
+    // find method
+    std::string method = request_line.substr(0, request_line.find(" "));
+    if (method == "POST" && request.find("\r\n\r\n") == std::string::npos) {
+        std::cout << "Request headers are missing, request is malformed" << std::endl;
+        return true; // Request headers are missing, request is malformed
+    }
+
+    std::cout << "Request is valid" << std::endl;
+    // If all checks pass, the request is likely valid
+    return false;
+}
 
 // 1. Need a while loop to listen requests (accept())
 // 2. Create a socket after recv the reqeust
@@ -121,8 +145,8 @@ void Proxy::runProxy() {
 
     int bind_status = bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
     if (bind_status == -1) {
-        // print the bind status
-        fprintf(stderr, "bind error: %s\n", strerror(bind_status));
+        // use perror to print the specific error
+        perror(strerror(errno));
         exit(1);
     }
     
@@ -252,21 +276,36 @@ void * Proxy::threadProcess(void* params) {
 
 void Proxy::handleResponse(ConnParams* params, int cur_pos) {
     // 1. Exclude methods that are not GET, POST, or CONNECT
+    vector<char> request_fullmsg = params->requestp->fullmsg;
+    std::string request_fullmsg_str(request_fullmsg.begin(), request_fullmsg.end());
+    if (is_malformed_request(request_fullmsg_str)) {
+        logObj.errorLog(params->conn_id, "Malformed request");
+        send(params->client_fd, "HTTP/1.1 400 Bad Request\r\n\r\n", 28, 0);
+        std::string responseLine = "HTTP/1.1 400 Bad Request";
+        logObj.respondToClient(params->conn_id, responseLine);
+        return;
+    }
+
     if (params->requestp->method != "GET" && params->requestp->method != "POST" && params->requestp->method != "CONNECT") {
         logObj.errorLog(params->conn_id, "Method not supported");
         return;
     }
     // 2. Handle GET, POST, and CONNECT
     else if (params->requestp->method == "GET") {
+        // lock cache
+        pthread_mutex_lock(&cache_lock);
         // if found in cache, handle cache
         if (cache.find(params->requestp->url) != cache.end()) {
+            pthread_mutex_unlock(&cache_lock);
             // std::cout << "Response cache get: " << cache[params->requestp->url].get_etag() << std::endl;
-            handle_cache(params->requestp->url, params);
+            handle_cache(params->requestp->url, params, &cache_lock);
         }
         else {
+            pthread_mutex_unlock(&cache_lock);
             logObj.retrieveCacheLog(params->conn_id, 0, ""); // not found in cache
             handleGET(params);
         }
+        
         
     }
 
@@ -442,9 +481,11 @@ bool Proxy::revalidate(Response cached_response, ConnParams* conn) {
 }
 
 
-void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
+void Proxy::retrieve_from_cache(std::string url, ConnParams* conn, pthread_mutex_t* cache_lock) {
     // get response from the most updated cache
+    pthread_mutex_lock(cache_lock);
     Response response = cache[url];
+    pthread_mutex_unlock(cache_lock);
     // send cached response to client
     vector<char> header = response.get_header();
     std::cout << "header: " << header.data() << std::endl;
@@ -466,12 +507,17 @@ void Proxy::retrieve_from_cache(std::string url, ConnParams* conn) {
 
 
 // if the response is in cache, handle cache
-void Proxy::handle_cache(std::string url, ConnParams* conn) {
+void Proxy::handle_cache(std::string url, ConnParams* conn, pthread_mutex_t* cache_lock) {
+    pthread_mutex_lock(cache_lock);
     Response response_cached = cache[url];
+    pthread_mutex_unlock(cache_lock);
     // totally expired, no retrieving, directly GET again. Also, delete the cache
     if (response_cached.check_exceed_max_stale()){
         logObj.retrieveCacheLog(conn->conn_id, 1, response_cached.get_expires());
         logObj.warningLog(conn->conn_id, "Cached response exceeded max stale, not usable, delete & re-GET");
+        pthread_mutex_lock(cache_lock);
+        cache.erase(url);
+        pthread_mutex_unlock(cache_lock);
         handleGET(conn); // totally expired, so need to GET again
         return;
     } 
@@ -494,35 +540,65 @@ void Proxy::handle_cache(std::string url, ConnParams* conn) {
 
     // send the response back to the client
     logObj.noteLog(conn->conn_id, "Retrieving from cache");
-    retrieve_from_cache(url, conn);
+    retrieve_from_cache(url, conn, cache_lock);
 }
 
 
 
 void Proxy::handleChunked(ConnParams* conn, std::vector<char>& message, int recv_fd, int send_fd, int cur_pos) {
-    // process the first chunk, find its chunk size
-    // int header_len = get_header_length(message);
-    // std::string size_str(message.data()[])
+    // have one vector that save chunk content for cache
+    vector<char> cur_chunk(MAX_LENGTH);
+    std::string found_end = "\r\n0\r\n\r\n";
+    bool chunk_ended = false;
+
+    // send the first chunk to client
+    std::string first_body = parse_body(message);
+    int found_end_pos = first_body.find(found_end);
+    if (found_end_pos != std::string::npos) {
+        chunk_ended = true;
+    }
+    int sent = send(send_fd, message.data(), cur_pos, 0);
+    std::cout << conn->conn_id << " HandleChunk: sent bytes: " << sent << std::endl;
+    std::cout << conn->conn_id << " HandleChunk: sent message: " << message.data() << std::endl;
+    
     // while loop to receive the remaing response from the host server
     // vector<char> remain_msg(MAX_LENGTH, 0);
-    while (1) {
+     while (!chunk_ended) {
         if (cur_pos >= message.size()) {
             message.resize(message.size() + MAX_LENGTH);
         }
-        int byte_count = recv(recv_fd, &message.data()[cur_pos], MAX_LENGTH, 0); // receive request from client
-        std::cerr<< conn->conn_id << "HandleChunk: received byte_count: " << byte_count << std::endl;
+        int byte_count = recv(recv_fd, &cur_chunk.data()[0], MAX_LENGTH, 0); // receive request from client
+        std::cout<< conn->conn_id << "HandleChunk: received byte_count: " << byte_count << std::endl;
+        std::cout<< conn->conn_id << "Received Chunk message: " << cur_chunk.data() << std::endl;
+        
+        std::string currChunkstr(cur_chunk.begin(), cur_chunk.end());
+          
         if (byte_count == -1) {
             logObj.errorLog(conn->conn_id, "Error: recv error");
             return;
         }
-        if (byte_count == 0) { // end of chunked response
-            break;
+        else if (byte_count == 0) {
+            logObj.errorLog(conn->conn_id, "Error: closed connection");
+            return;
         }
+        if (currChunkstr.find(found_end) != std::string::npos) {
+            chunk_ended = true;
+        }
+       
+        // add to message
+        message.insert(message.begin()+cur_pos, cur_chunk.begin(), cur_chunk.end());
         cur_pos += byte_count;
+
+        // send current chunk to client
+        int sent = send(send_fd, cur_chunk.data(), byte_count, 0);
+        std::cout << conn->conn_id << "HandleChunk: sent bytes: " << sent << std::endl;
+        std::cout<< conn->conn_id << "HandleChunk sent message: " << cur_chunk.data() << std::endl;
+        // reinitialize the cur_chunk
+
+        cur_chunk.clear();
+        cur_chunk.resize(MAX_LENGTH);
     }
-    // send sticked together
-    int sent = send(send_fd, message.data(), message.size(), 0);
-    logObj.noteLog(conn->conn_id, "HandleChunk: sent bytes: " + std::to_string(sent));
+    
 }
 
 void Proxy::handleNonChunked( ConnParams* conn, std::vector<char>& message, int cur_pos, int recv_fd, int send_fd) {
@@ -616,8 +692,10 @@ void Proxy::handleGET(ConnParams* conn) {
             } else { // rare cases, like having neither expires nor max-age
                 logObj.insertCacheLog(conn->conn_id, 2, "", "");
             }
+            pthread_mutex_lock(&cache_lock);
             cache.insert({conn->requestp->url, resp});
-            std::cout << "Initially get: " << cache[conn->requestp->url].get_etag() << std::endl;      
+            std::cout << "Initially get: " << cache[conn->requestp->url].get_etag() << std::endl; 
+            pthread_mutex_unlock(&cache_lock);     
             std::cout << "Cached entry:" << conn->requestp->url << "-------" << resp.get_line() << std::endl;
         }
         

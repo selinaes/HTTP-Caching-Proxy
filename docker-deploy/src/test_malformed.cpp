@@ -25,28 +25,14 @@ bool is_malformed_request(std::string request) {
         std::cout << "Request line is not in the expected format, request is malformed" << std::endl;
         return true; // Request line is not in the expected format, request is malformed
     }
-    std::cout << "request_line_match.size() = " << request_line_match.size() << std::endl;
-    if (request_line_match.size() != 4) {
-        std::cout << "Request line has wrong number of capture groups, request is malformed" << std::endl;
-        return true; // Request line has wrong number of capture groups, request is malformed
-    }
-
     // Check for incomplete or missing information
-    if (request.find("\r\n\r\n") == std::string::npos) {
+    // find method
+    std::string method = request_line.substr(0, request_line.find(" "));
+    if (method == "POST" && request.find("\r\n\r\n") == std::string::npos) {
         std::cout << "Request headers are missing, request is malformed" << std::endl;
         return true; // Request headers are missing, request is malformed
     }
-    if (request_line_match[1].str().empty() || request_line_match[2].str().empty() || request_line_match[3].str().empty()) {
-        std::cout << "Request method, path, or HTTP version is missing, request is malformed" << std::endl;
-        return true; // Request method, path, or HTTP version is missing, request is malformed
-    }
-    
-    // Check for invalid encoding
-    std::regex invalid_encoding_regex(R"([\x00-\x08\x0b\x0c\x0e-\x1f])");
-    if (std::regex_search(request, invalid_encoding_regex)) {
-        std::cout << "Request contains invalid characters, request is malformed" << std::endl;
-        return true; // Request contains invalid characters, request is malformed
-    }
+
     std::cout << "Request is valid" << std::endl;
     // If all checks pass, the request is likely valid
     return false;
